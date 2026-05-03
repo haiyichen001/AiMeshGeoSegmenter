@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>OCCT-MechBench Multi-Format Viewer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif}
+#app{display:flex;width:100vw;height:100vh}
+#sidebar{width:260px;background:#111;border-right:1px solid #222;padding:16px;display:flex;flex-direction:column;gap:12px;overflow-y:auto}
+#sidebar h2{color:#888;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+#sidebar label{display:flex;align-items:center;gap:8px;color:#ccc;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:4px;transition:background .2s}
+#sidebar label:hover{background:#1a1a1a}
+#sidebar label input[type=checkbox]{accent-color:#4db8ff}
+#sidebar select,#sidebar button{width:100%;padding:8px;background:#1a1a1a;color:#ccc;border:1px solid #333;border-radius:4px;font-size:13px;cursor:pointer}
+#sidebar button:hover{background:#2a2a2a;color:#fff}
+#main{flex:1;position:relative}
+.view{position:absolute;border:1px solid #222;overflow:hidden}
+.view canvas{display:block;position:absolute;top:0;left:0;z-index:0}
+.label{position:absolute;top:4px;left:4px;color:#fff;font-size:12px;font-weight:bold;padding:4px 10px;background:rgba(0,0,0,0.9);border-radius:3px;z-index:1000;pointer-events:none}
+#info{position:fixed;bottom:4px;left:4px;color:#555;font-size:11px;z-index:100}
+#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:16px;z-index:200;display:none}
+</style>
+</head>
+<body>
+<div id="app">
+<div id="navbar" style="position:fixed;top:0;left:0;right:0;z-index:200;display:flex;gap:0;background:#111;border-bottom:1px solid #333">
+  <a href="/" style="padding:8px 16px;color:#4db8ff;text-decoration:none;font-size:13px;background:#1a1a1a">Compare</a>
+  <a href="/labels" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Labels</a>
+</div>
+<div id="sidebar" style="margin-top:35px">
+  <h2>Part</h2>
+  <select id="partSelect"></select>
+  <button id="btnReload">Reload</button>
+  <h2>Formats</h2>
+  <div id="formatList"></div>
+</div>
+<div id="main"></div>
+</div>
+<div id="info"></div>
+<div id="loading">Loading...</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const BASE = '';
+const FORMATS = [
+  {id:'step',label:'STEP (B-Rep)',color:0x4db8ff,api:'mesh'},
+  {id:'stl',label:'STL (Mesh)',color:0xff8c00,api:'stl'},
+  {id:'ply',label:'Point Cloud',color:0x33ff4d,api:'points',isPoints:true},
+  {id:'npy',label:'Voxel (64^3)',color:0xcc33ff,api:'voxels',isVoxel:true},
+];
+let syncing = false;
+let globalCenter = [0,0,0];
+let globalSpan = 1;
+let views = [];
+let scenes = [];
+let renderers = [];
+let controls = [];
+let groups = [];
+let activeFormats = ['step','stl','ply','npy'];
+
+function broadcastCamera(src) {
+  syncing = true;
+  const sc = views[src];
+  for (let i = 0; i < views.length; i++) {
+    if (i === src) continue;
+    const v = views[i];
+    v.cam.position.copy(sc.cam.position);
+    v.cam.quaternion.copy(sc.cam.quaternion);
+    v.cam.zoom = sc.cam.zoom;
+    v.cam.updateProjectionMatrix();
+    v.ctrl.target.copy(sc.ctrl.target);
+    v.ctrl.update();
+  }
+  syncing = false;
+}
+
+function layout() {
+  const n = views.length;
+  const main = document.getElementById('main');
+  const W = main.clientWidth, H = main.clientHeight;
+  const layouts = {
+    1:[{x:0,y:0,w:1,h:1}],
+    2:[{x:0,y:0,w:0.5,h:1},{x:0.5,y:0,w:0.5,h:1}],
+    3:[{x:0,y:0,w:0.5,h:0.5},{x:0.5,y:0,w:0.5,h:0.5},{x:0.25,y:0.5,w:0.5,h:0.5}],
+    4:[{x:0,y:0,w:0.5,h:0.5},{x:0.5,y:0,w:0.5,h:0.5},{x:0,y:0.5,w:0.5,h:0.5},{x:0.5,y:0.5,w:0.5,h:0.5}],
+  };
+  let positions;
+  if (layouts[n]) positions = layouts[n];
+  else {
+    // 5+: auto grid
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n/cols);
+    positions = [];
+    for (let i=0;i<n;i++) {
+      const r = Math.floor(i/cols), c = i % cols;
+      positions.push({x:c/cols, y:r/rows, w:1/cols, h:1/rows});
+    }
+  }
+  for (let i=0;i<n;i++) {
+    const el = document.getElementById('v'+i);
+    const p = positions[i];
+    el.style.left = (p.x*W)+'px';
+    el.style.top = (p.y*H)+'px';
+    el.style.width = (p.w*W)+'px';
+    el.style.height = (p.h*H)+'px';
+    if (el._label) {
+      el._label.style.left = (p.x*W + 6)+'px';
+      el._label.style.top = (p.y*H + 35)+'px';
+    }
+    renderers[i].setSize(p.w*W, p.h*H);
+    views[i].cam.aspect = (p.w*W)/(p.h*H);
+    views[i].cam.updateProjectionMatrix();
+  }
+}
+
+function createView(i, format) {
+  const main = document.getElementById('main');
+  const el = document.createElement('div');
+  el.className = 'view';
+  el.id = 'v'+i;
+  main.appendChild(el);
+  const lb = document.createElement('div');
+  lb.className = 'label';
+  lb.textContent = format.label;
+  lb.style.position = 'absolute';
+  lb.style.zIndex = '1000';
+  lb.style.pointerEvents = 'none';
+  main.appendChild(lb);
+  el._label = lb;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a0a);
+  scenes[i] = scene;
+
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.domElement.style.position = 'absolute';
+  renderer.domElement.style.top = '0';
+  renderer.domElement.style.left = '0';
+  renderer.domElement.style.zIndex = '0';
+  el.appendChild(renderer.domElement);
+  renderers[i] = renderer;
+
+  const cam = new THREE.PerspectiveCamera(35,1,0.001,1000);
+  cam.position.set(1,0.6,1.5); cam.up.set(0,0,1);
+
+  const ctrl = new OrbitControls(cam, renderer.domElement);
+  ctrl.enableDamping = true; ctrl.dampingFactor = 0.12;
+  ctrl.target.set(0,0,0);
+  ctrl.addEventListener('change',()=>{if(!syncing)broadcastCamera(i);});
+  controls[i] = ctrl;
+
+  const group = new THREE.Group(); scene.add(group);
+  groups[i] = group;
+
+  if (format.isVoxel) {
+    scene.add(new THREE.AmbientLight(0xffffff,1));
+    const d = new THREE.DirectionalLight(0xffffff,5);
+    d.position.set(1,1,1); scene.add(d);
+  } else {
+    scene.add(new THREE.AmbientLight(0x404060,3));
+    const d = new THREE.DirectionalLight(0xffffff,4);
+    d.position.set(1,1,1); scene.add(d);
+    const d2 = new THREE.DirectionalLight(0x8888cc,2);
+    d2.position.set(-0.5,-0.5,-0.5); scene.add(d2);
+  }
+
+  views[i] = {el,cam,ctrl,group};
+}
+
+function clearView(i) {
+  while (groups[i].children.length > 0) {
+    const c = groups[i].children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+    groups[i].remove(c);
+  }
+}
+
+async function loadFormat(i, format, part) {
+  clearView(i);
+  const fa = format;
+  try {
+    if (fa.isPoints) {
+      const r = await fetch(`${BASE}/api/${fa.api}/${part}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(d.points,3));
+      const mat = new THREE.PointsMaterial({color:fa.color, size:d.span*0.004});
+      groups[i].add(new THREE.Points(geo,mat));
+    } else if (fa.isVoxel) {
+      const r = await fetch(`${BASE}/api/${fa.api}/${part}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const boxGeo = new THREE.BoxGeometry(1,1,1);
+      const mat = new THREE.MeshLambertMaterial({color:fa.color});
+      const im = new THREE.InstancedMesh(boxGeo, mat, d.voxels.length);
+      const m = new THREE.Matrix4(); const q = new THREE.Quaternion(); const s = new THREE.Vector3();
+      for (let j=0;j<d.voxels.length;j++) {
+        const [cx,cy,cz,hs] = d.voxels[j];
+        m.compose(new THREE.Vector3(cx,cy,cz), q.identity(), s.set(hs*2,hs*2,hs*2));
+        im.setMatrixAt(j,m);
+      }
+      groups[i].add(im);
+      const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+      const edgeMat = new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.12});
+      const em = new THREE.InstancedMesh(edgeGeo, edgeMat, d.voxels.length);
+      for (let j=0;j<d.voxels.length;j++) {
+        const [cx,cy,cz,hs] = d.voxels[j];
+        m.compose(new THREE.Vector3(cx,cy,cz), q.identity(), s.set(hs*2,hs*2,hs*2));
+        em.setMatrixAt(j,m);
+      }
+      groups[i].add(em);
+    } else {
+      // mesh (STEP, STL, or reverse)
+      const apiName = fa.api.startsWith('mesh_l') ? `mesh_l${fa.api.split('mesh_l')[1]}/${part}` : `${fa.api}/${part}`;
+      const r = await fetch(`${BASE}/api/${apiName}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      globalCenter = d.center; globalSpan = d.span;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(d.vertices,3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(d.normals,3));
+      geo.setIndex(d.triangles); geo.computeVertexNormals();
+      const shininess = fa.id==='stl' ? 30 : 80;
+      const flatShading = fa.id==='stl';
+      const mat = new THREE.MeshPhongMaterial({color:fa.color, specular:0x222222, shininess, side:THREE.DoubleSide, flatShading});
+      groups[i].add(new THREE.Mesh(geo,mat));
+      if (fa.id==='stl' || fa.wire) {
+        const wfGeo = new THREE.BufferGeometry();
+        wfGeo.setAttribute('position', new THREE.Float32BufferAttribute(d.vertices,3));
+        wfGeo.setIndex(d.triangles);
+        const wf = new THREE.Mesh(wfGeo, new THREE.MeshBasicMaterial({color:0x000000, wireframe:true, opacity:0.15, transparent:true}));
+        groups[i].add(wf);
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+function fitAll() {
+  const d = globalSpan || 1;
+  const center = new THREE.Vector3(globalCenter[0], globalCenter[1], globalCenter[2]);
+  for (let i=0;i<views.length;i++) {
+    views[i].ctrl.target.copy(center);
+    const dist = d * 2.5;
+    views[i].cam.position.set(center.x+dist*0.6, center.y+dist*0.4, center.z+dist*0.7);
+    views[i].cam.lookAt(center);
+    views[i].ctrl.update();
+  }
+}
+
+function rebuildViews() {
+  const main = document.getElementById('main');
+  document.querySelectorAll('.label').forEach(l=>l.remove());
+  main.innerHTML = '';
+  for (let i=0;i<views.length;i++) {
+    if (renderers[i]) renderers[i].dispose();
+  }
+  views = []; scenes = []; renderers = []; controls = []; groups = [];
+  for (let i=0;i<activeFormats.length;i++) {
+    const fmt = FORMATS.find(f=>f.id===activeFormats[i]);
+    if (fmt) createView(i, fmt);
+  }
+  layout();
+  loadAll();
+}
+
+async function loadAll() {
+  document.getElementById('loading').style.display = 'block';
+  const part = document.getElementById('partSelect').value;
+  for (let i=0;i<activeFormats.length;i++) {
+    const fmt = FORMATS.find(f=>f.id===activeFormats[i]);
+    if (fmt) await loadFormat(i, fmt, part);
+  }
+  fitAll();
+  document.getElementById('info').textContent = 'Current: '+part;
+  document.getElementById('loading').style.display = 'none';
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  for (let i=0;i<views.length;i++) {
+    if (controls[i]) { controls[i].update(); renderers[i].render(scenes[i], views[i].cam); }
+  }
+}
+animate();
+
+window.addEventListener('resize', layout);
+
+// Init sidebar
+function initSidebar() {
+  const list = document.getElementById('formatList');
+  FORMATS.forEach((f,i) => {
+    const label = document.createElement('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = i<4;
+    cb.addEventListener('change', ()=>{
+      if (cb.checked) {if(!activeFormats.includes(f.id))activeFormats.push(f.id)}
+      else activeFormats = activeFormats.filter(x=>x!==f.id);
+      rebuildViews();
+    });
+    const dot = document.createElement('span');
+    dot.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:#${f.color.toString(16).padStart(6,'0')}`;
+    label.appendChild(cb); label.appendChild(dot); label.appendChild(document.createTextNode(f.label));
+    list.appendChild(label);
+  });
+}
+
+async function init() {
+  initSidebar();
+  const r = await fetch(`${BASE}/api/parts`);
+  const parts = await r.json();
+  const sel = document.getElementById('partSelect');
+  parts.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o)});
+  const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
+  if(def) sel.value = def;
+  sel.addEventListener('change', loadAll);
+  document.getElementById('btnReload').addEventListener('click', loadAll);
+  rebuildViews();
+}
+init();
+</script>
+</body>
+</html>

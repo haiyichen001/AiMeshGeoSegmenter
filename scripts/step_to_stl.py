@@ -8,8 +8,8 @@ from OCC.Core.StlAPI import StlAPI_Writer
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 
 ROOT = Path(__file__).parent.parent
-STEP_DIR = ROOT / "step"
-STL_DIR = ROOT / "stl"
+STEP_DIR = ROOT / "data" / "step"
+STL_DIR = ROOT / "data" / "stl"
 os.makedirs(STL_DIR, exist_ok=True)
 
 DEFLECTION = 0.1  # 三角化精度 (mm)

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Face Type Labels</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;overflow:hidden;font-family:Arial}
+#navbar{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;gap:0;background:#111;border-bottom:1px solid #333}
+#navbar a{padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px}
+#navbar a.active{color:#4db8ff;background:#1a1a1a}
+#toolbar{position:fixed;top:35px;right:8px;z-index:100;display:flex;gap:8px;align-items:center}
+#toolbar select,#toolbar button{padding:6px 12px;font-size:13px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px;cursor:pointer}
+#toolbar select:hover,#toolbar button:hover{background:#2a2a2a;color:#fff}
+#legend{position:fixed;top:35px;left:8px;color:#ccc;font-size:12px;z-index:100;display:flex;flex-direction:column;gap:3px;background:rgba(0,0,0,0.7);padding:8px;border-radius:4px}
+#legend .item{display:flex;align-items:center;gap:6px;cursor:pointer}
+#legend .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+#info{position:fixed;bottom:8px;left:8px;color:#666;font-size:11px;z-index:100}
+#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:16px;z-index:200;display:none}
+.label-line{position:absolute;pointer-events:none;z-index:50}
+</style>
+</head>
+<body>
+<div id="navbar">
+  <a href="/">Compare</a>
+  <a href="/labels" class="active">Labels</a>
+</div>
+<div id="toolbar">
+  <select id="partSelect"></select>
+  <button id="btnReload">Reload</button>
+</div>
+<div id="legend"></div>
+<div id="info"></div>
+<div id="loading">Loading...</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+const BASE = '';
+let scene, renderer, labelRenderer, cam, ctrl, group;
+
+function initScene() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a0a);
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(w,h); renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  document.body.appendChild(renderer.domElement);
+  labelRenderer = new CSS2DRenderer();
+  labelRenderer.setSize(w,h); labelRenderer.domElement.style.position='absolute';
+  labelRenderer.domElement.style.top='0'; labelRenderer.domElement.style.pointerEvents='none';
+  document.body.appendChild(labelRenderer.domElement);
+  cam = new THREE.PerspectiveCamera(35,w/h,0.001,1000);
+  cam.position.set(1,0.6,1.5); cam.up.set(0,0,1);
+  ctrl = new OrbitControls(cam, renderer.domElement);
+  ctrl.enableDamping = true; ctrl.dampingFactor = 0.12; ctrl.target.set(0,0,0);
+  scene.add(new THREE.AmbientLight(0xffffff,3));
+  const d1 = new THREE.DirectionalLight(0xffffff,3); d1.position.set(1,1,1); scene.add(d1);
+  const d2 = new THREE.DirectionalLight(0x8888cc,2); d2.position.set(-0.5,-0.5,-0.5); scene.add(d2);
+  group = new THREE.Group(); scene.add(group);
+  window.addEventListener('resize',()=>{
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    labelRenderer.setSize(window.innerWidth, window.innerHeight);
+    cam.aspect = window.innerWidth/window.innerHeight; cam.updateProjectionMatrix();
+  });
+}
+
+function clearGroup() {
+  while(group.children.length > 0) {
+    const c = group.children[0];
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) { if (Array.isArray(c.material)) c.material.forEach(m=>m.dispose()); else c.material.dispose(); }
+    group.remove(c);
+  }
+}
+
+async function load(part) {
+  document.getElementById('loading').style.display = 'block';
+  clearGroup();
+  try {
+    const r = await fetch(`${BASE}/api/labels/${part}`);
+    if (!r.ok) { console.error('Failed'); return; }
+    const d = await r.json();
+
+    // Build legend
+    const typeSet = {};
+    d.faces.forEach(f=>{
+      if (!typeSet[f.type]) typeSet[f.type] = {color:f.color, count:0};
+      typeSet[f.type].count++;
+    });
+    const legend = document.getElementById('legend');
+    legend.innerHTML = Object.entries(typeSet).map(([t,info])=>
+      `<div class="item"><span class="dot" style="background:${info.color}"></span>${t} (${info.count})</div>`
+    ).join('');
+
+    // Render faces
+    d.faces.forEach(f=>{
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(f.vertices,3));
+      geo.setIndex(f.triangles);
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(f.color),
+        specular: 0x000000, shininess: 0,
+        side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      group.add(mesh);
+
+      // Label at face center
+      const div = document.createElement('div');
+      div.textContent = f.type;
+      div.style.cssText = `color:${f.color};font-size:10px;font-weight:bold;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:3px;white-space:nowrap;pointer-events:none`;
+      const label = new CSS2DObject(div);
+      const [cx,cy,cz] = f.center;
+      label.position.set(cx, cy, cz);
+      group.add(label);
+    });
+
+    cam.position.set(d.center[0]+d.span*0.6, d.center[1]+d.span*0.4, d.center[2]+d.span*0.7);
+    ctrl.target.set(...d.center); ctrl.update();
+    document.getElementById('info').textContent = `${part} | ${d.faces.length} faces`;
+  } catch(e) { console.error(e); }
+  document.getElementById('loading').style.display = 'none';
+}
+
+function animate() { requestAnimationFrame(animate); ctrl.update(); renderer.render(scene,cam); labelRenderer.render(scene,cam); }
+
+async function init() {
+  initScene(); animate();
+  const r = await fetch(`${BASE}/api/parts`);
+  const parts = await r.json();
+  const sel = document.getElementById('partSelect');
+  parts.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o)});
+  const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
+  if(def) sel.value = def;
+  sel.addEventListener('change',()=>load(sel.value));
+  document.getElementById('btnReload').addEventListener('click',()=>load(sel.value));
+  await load(sel.value);
+}
+init();
+</script>
+</body>
+</html>

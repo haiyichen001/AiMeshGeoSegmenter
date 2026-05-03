@@ -18,7 +18,7 @@ os.makedirs(LABEL_DIR, exist_ok=True)
 
 AREA_RATIO_THRESH = 0.15    # fillet: area / (area + neighbor area) max
 PLANE_CHAMFER_RATIO = 0.05  # (unused, kept for reference)
-CHAMFER_CONE_AREA_MAX = 10.0  # mm^2, cone chamfer absolute max area
+CHAMFER_CONE_AREA_MAX = 500.0  # mm^2, cone chamfer absolute max area
 
 
 def face_normal(vertices):

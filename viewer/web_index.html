@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>ISO-Mech 四格式对比查看器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;overflow:hidden;font-family:Arial}
+#grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;width:100vw;height:100vh}
+.view{position:relative;background:#0a0a0a;border:1px solid #222}
+.view canvas{display:block}
+.view .label{position:absolute;top:8px;left:8px;color:#fff;font-size:14px;font-weight:bold;padding:5px 10px;background:rgba(0,0,0,0.6);border-radius:4px;z-index:10;pointer-events:none}
+#toolbar{position:fixed;top:8px;right:8px;z-index:100;display:flex;gap:8px;align-items:center}
+#toolbar select,#toolbar button{padding:6px 12px;font-size:13px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px;cursor:pointer}
+#toolbar select:hover,#toolbar button:hover{background:#2a2a2a;color:#fff}
+#info{position:fixed;bottom:8px;left:8px;color:#666;font-size:11px;z-index:100}
+#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:18px;z-index:200;display:none}
+</style>
+</head>
+<body>
+<div id="grid">
+  <div class="view" id="v0"><div class="label">STEP (B-Rep NURBS)</div></div>
+  <div class="view" id="v1"><div class="label">STL (Mesh)</div></div>
+  <div class="view" id="v2"><div class="label">Point Cloud (16384)</div></div>
+  <div class="view" id="v3"><div class="label">Voxel (128³)</div></div>
+</div>
+<div id="navbar" style="position:fixed;top:0;left:0;right:0;z-index:200;display:flex;gap:0;background:#111;border-bottom:1px solid #333">
+  <a href="/" style="padding:8px 16px;color:#4db8ff;text-decoration:none;font-size:13px;background:#1a1a1a">4-View</a>
+  <a href="/multi" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Multi</a>
+  <a href="/fit" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Fit</a>
+</div>
+<div id="toolbar" style="margin-top:35px">
+  <select id="partSelect"></select>
+  <button id="btnReload">重新加载</button>
+</div>
+<div id="info"></div>
+<div id="loading">加载中...</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const BASE = '';
+const views = [];
+const scenes = [];
+const renderers = [];
+const controls = [];
+const groups = [];
+let syncing = false;
+let globalCenter = [0, 0, 0];
+let globalSpan = 1;
+
+// ── init 4 viewports ──
+for (let i = 0; i < 4; i++) {
+  const el = document.getElementById('v' + i);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0a0a);
+  scenes.push(scene);
+
+  const w = el.clientWidth, h = el.clientHeight;
+  const renderer = new THREE.WebGLRenderer({antialias: true});
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  el.appendChild(renderer.domElement);
+  renderers.push(renderer);
+
+  const cam = new THREE.PerspectiveCamera(35, w/h, 0.001, 1000);
+  cam.position.set(1, 0.6, 1.5);
+  cam.up.set(0, 0, 1);
+
+  const ctrl = new OrbitControls(cam, renderer.domElement);
+  ctrl.enableDamping = true;
+  ctrl.dampingFactor = 0.12;
+  ctrl.target.set(0, 0, 0);
+  ctrl.addEventListener('change', () => {
+    if (!syncing) broadcastCamera(i);
+  });
+  controls.push(ctrl);
+
+  const group = new THREE.Group();
+  scene.add(group);
+  groups.push(group);
+
+  if (i === 3) {
+    const amb = new THREE.AmbientLight(0xffffff, 1);
+    scene.add(amb);
+    const dir1 = new THREE.DirectionalLight(0xffffff, 5);
+    dir1.position.set(1, 1, 1);
+    scene.add(dir1);
+  } else {
+    const amb = new THREE.AmbientLight(0x404060, 3);
+    scene.add(amb);
+    const dir1 = new THREE.DirectionalLight(0xffffff, 4);
+    dir1.position.set(1, 1, 1);
+    scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0x8888cc, 2);
+    dir2.position.set(-0.5, -0.5, -0.5);
+    scene.add(dir2);
+  }
+
+  views.push({el, cam, ctrl, group});
+}
+
+function broadcastCamera(src) {
+  syncing = true;
+  const sc = views[src];
+  for (let i = 0; i < 4; i++) {
+    if (i === src) continue;
+    const v = views[i];
+    v.cam.position.copy(sc.cam.position);
+    v.cam.quaternion.copy(sc.cam.quaternion);
+    v.cam.zoom = sc.cam.zoom;
+    v.cam.updateProjectionMatrix();
+    v.ctrl.target.copy(sc.ctrl.target);
+    v.ctrl.update();
+  }
+  syncing = false;
+}
+
+// ── mouse wheel sync ──
+document.querySelectorAll('.view canvas').forEach((canvas, i) => {
+  canvas.addEventListener('wheel', () => {
+    setTimeout(() => broadcastCamera(i), 50);
+  });
+});
+
+// ── resize ──
+function onResize() {
+  for (let i = 0; i < 4; i++) {
+    const el = document.getElementById('v' + i);
+    const w = el.clientWidth, h = el.clientHeight;
+    renderers[i].setSize(w, h);
+    views[i].cam.aspect = w / h;
+    views[i].cam.updateProjectionMatrix();
+  }
+}
+window.addEventListener('resize', onResize);
+
+// ── render loop ──
+function animate() {
+  requestAnimationFrame(animate);
+  for (let i = 0; i < 4; i++) {
+    controls[i].update();
+    renderers[i].render(scenes[i], views[i].cam);
+  }
+}
+animate();
+
+// ── loading ──
+async function loadPart(part) {
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('info').textContent = `加载: ${part}`;
+  clearGroups();
+
+  try {
+    // STEP mesh
+    const rMesh = await fetch(`${BASE}/api/mesh/${part}`);
+    if (rMesh.ok) {
+      const d = await rMesh.json();
+      globalCenter = d.center;
+      globalSpan = d.span;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(d.vertices, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(d.normals, 3));
+      geo.setIndex(d.triangles);
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshPhongMaterial({
+        color: 0x4db8ff, specular: 0x222222, shininess: 80,
+        side: THREE.DoubleSide, flatShading: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      groups[0].add(mesh);
+    }
+
+    // STL mesh
+    const rStl = await fetch(`${BASE}/api/stl/${part}`);
+    if (rStl.ok) {
+      const d = await rStl.json();
+      if (!globalSpan) { globalCenter = d.center; globalSpan = d.span; }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(d.vertices, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(d.normals, 3));
+      geo.setIndex(d.triangles);
+      geo.computeVertexNormals();
+      const mat = new THREE.MeshPhongMaterial({
+        color: 0xff8c00, specular: 0x111111, shininess: 30,
+        side: THREE.DoubleSide, flatShading: true,
+        wireframe: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+
+      // wireframe overlay
+      const wfGeo = new THREE.BufferGeometry();
+      wfGeo.setAttribute('position', new THREE.Float32BufferAttribute(d.vertices, 3));
+      wfGeo.setIndex(d.triangles);
+      const wfMat = new THREE.MeshBasicMaterial({color: 0x000000, wireframe: true, opacity: 0.15, transparent: true});
+      const wf = new THREE.Mesh(wfGeo, wfMat);
+      groups[1].add(wf);
+      groups[1].add(mesh);
+    }
+
+    // Point cloud
+    const rPts = await fetch(`${BASE}/api/points/${part}`);
+    if (rPts.ok) {
+      const d = await rPts.json();
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(d.points, 3));
+      const mat = new THREE.PointsMaterial({color: 0x33ff4d, size: d.span * 0.004});
+      const pts = new THREE.Points(geo, mat);
+      groups[2].add(pts);
+    }
+
+    // Voxels
+    const rVox = await fetch(`${BASE}/api/voxels/${part}`);
+    if (rVox.ok) {
+      const d = await rVox.json();
+      const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+      const mat = new THREE.MeshLambertMaterial({color: 0xcc33ff});
+      const instancedMesh = new THREE.InstancedMesh(boxGeo, mat, d.voxels.length);
+      const m = new THREE.Matrix4();
+      const q = new THREE.Quaternion();
+      const s = new THREE.Vector3();
+      for (let i = 0; i < d.voxels.length; i++) {
+        const [cx, cy, cz, hs] = d.voxels[i];
+        m.compose(new THREE.Vector3(cx, cy, cz), q.identity(), s.set(hs*2, hs*2, hs*2));
+        instancedMesh.setMatrixAt(i, m);
+      }
+      groups[3].add(instancedMesh);
+      const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+      const edgeMat = new THREE.LineBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.12});
+      const edgeMesh = new THREE.InstancedMesh(edgeGeo, edgeMat, d.voxels.length);
+      for (let i = 0; i < d.voxels.length; i++) {
+        const [cx, cy, cz, hs] = d.voxels[i];
+        m.compose(new THREE.Vector3(cx, cy, cz), q.identity(), s.set(hs*2, hs*2, hs*2));
+        edgeMesh.setMatrixAt(i, m);
+      }
+      groups[3].add(edgeMesh);
+    }
+
+    fitAll();
+    document.getElementById('info').textContent = `当前: ${part}`;
+  } catch(e) {
+    document.getElementById('info').textContent = `加载失败: ${e.message}`;
+  }
+  document.getElementById('loading').style.display = 'none';
+}
+
+function clearGroups() {
+  for (let i = 0; i < 4; i++) {
+    while (groups[i].children.length > 0) {
+      const c = groups[i].children[0];
+      if (c.geometry) c.geometry.dispose();
+      if (c.material) c.material.dispose();
+      groups[i].remove(c);
+    }
+  }
+}
+
+function fitAll() {
+  const d = globalSpan || 1;
+  const center = new THREE.Vector3(globalCenter[0], globalCenter[1], globalCenter[2]);
+  for (let i = 0; i < 4; i++) {
+    views[i].ctrl.target.copy(center);
+    const dist = d * 2.5;
+    views[i].cam.position.set(center.x + dist*0.6, center.y + dist*0.4, center.z + dist*0.7);
+    views[i].cam.lookAt(center);
+    views[i].ctrl.update();
+  }
+}
+
+// ── init ──
+async function init() {
+  const r = await fetch(`${BASE}/api/parts`);
+  const parts = await r.json();
+  const sel = document.getElementById('partSelect');
+  parts.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    sel.appendChild(opt);
+  });
+
+  // default
+  const def = parts.find(p => p.includes('HexagonNut')) || parts[0];
+  if (def) sel.value = def;
+
+  sel.addEventListener('change', () => loadPart(sel.value));
+  document.getElementById('btnReload').addEventListener('click', () => loadPart(sel.value));
+
+  if (def) loadPart(def);
+}
+init();
+</script>
+</body>
+</html>
