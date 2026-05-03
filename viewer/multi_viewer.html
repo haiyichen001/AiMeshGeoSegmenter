@@ -31,8 +31,7 @@ body{background:#0a0a0a;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif}
 </div>
 <div id="sidebar" style="margin-top:35px">
   <h2>Part</h2>
-  <input id="partSelect" list="partList" placeholder="Search part..." style="width:100%;padding:8px;background:#1a1a1a;color:#ccc;border:1px solid #333;border-radius:4px;font-size:13px">
-  <datalist id="partList"></datalist>
+  <input id="partSelect" placeholder="Type part name then Enter..." style="width:100%;padding:8px;background:#1a1a1a;color:#ccc;border:1px solid #333;border-radius:4px;font-size:13px">
   <button id="btnReload">Reload</button>
   <h2>Formats</h2>
   <div id="formatList"></div>
@@ -317,17 +316,16 @@ async function init() {
   initSidebar();
   const r = await fetch(`${BASE}/api/parts`);
   const parts = await r.json();
-  const list = document.getElementById('partList');
-  parts.forEach(p=>{const o=document.createElement('option');o.value=p;list.appendChild(o)});
   const sel = document.getElementById('partSelect');
   const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
   if(def) sel.value = def;
   function selectPart(val) {
+    val = val.trim();
+    if (!val) return;
     if (parts.includes(val)) { sel.value = val; loadAll(); return; }
     const match = parts.find(p => p.startsWith(val) || p.toLowerCase().includes(val.toLowerCase()));
     if (match) { sel.value = match; loadAll(); }
   }
-  sel.addEventListener('change', ()=>selectPart(sel.value));
   sel.addEventListener('keydown', e=>{if(e.key==='Enter'){e.preventDefault();selectPart(sel.value);}});
   document.getElementById('btnReload').addEventListener('click', loadAll);
   rebuildViews();
