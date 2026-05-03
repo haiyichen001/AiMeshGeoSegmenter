@@ -322,7 +322,13 @@ async function init() {
   const sel = document.getElementById('partSelect');
   const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
   if(def) sel.value = def;
-  sel.addEventListener('input', loadAll);
+  function selectPart(val) {
+    if (parts.includes(val)) { sel.value = val; loadAll(); return; }
+    const match = parts.find(p => p.startsWith(val) || p.toLowerCase().includes(val.toLowerCase()));
+    if (match) { sel.value = match; loadAll(); }
+  }
+  sel.addEventListener('change', ()=>selectPart(sel.value));
+  sel.addEventListener('keydown', e=>{if(e.key==='Enter'){e.preventDefault();selectPart(sel.value);}});
   document.getElementById('btnReload').addEventListener('click', loadAll);
   rebuildViews();
 }

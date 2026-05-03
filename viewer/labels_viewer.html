@@ -140,9 +140,15 @@ async function init() {
   const list = document.getElementById('partList');
   parts.forEach(p=>{const o=document.createElement('option');o.value=p;list.appendChild(o)});
   const sel = document.getElementById('partSelect');
+  function selectPart(val) {
+    if (parts.includes(val)) { sel.value = val; load(sel.value); return; }
+    const match = parts.find(p => p.startsWith(val) || p.toLowerCase().includes(val.toLowerCase()));
+    if (match) { sel.value = match; load(sel.value); }
+  }
   const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
   if(def) sel.value = def;
-  sel.addEventListener('input',()=>load(sel.value));
+  sel.addEventListener('change',()=>selectPart(sel.value));
+  sel.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();selectPart(sel.value);}});
   document.getElementById('btnReload').addEventListener('click',()=>load(sel.value));
   await load(sel.value);
 }
