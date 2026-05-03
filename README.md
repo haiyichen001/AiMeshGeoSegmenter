@@ -1,52 +1,66 @@
 # AiMeshGeoSegmenter
 
-AI-powered semantic segmentation framework for detecting analytic surfaces from 3D mesh data. Given a tessellated STL mesh, the model classifies each face/patch into geometric primitive categories (plane, cylinder, sphere, cone, fillet, etc.), enabling direct analytic surface fitting without NURBS.
+Mesh face-level semantic segmentation for analytic surface type recognition. Part of the **STL-to-STEP** reverse engineering pipeline.
 
-## Motivation
-
-Traditional reverse engineering pipelines rely on B-spline / NURBS surface fitting, which involves complex parameter tuning (knot vectors, control points, degree selection). This project takes a different route:
-
-1. **AI classification** — a learned model predicts what type of analytic surface each mesh region represents
-2. **Analytic fitting** — based on the predicted class, fit the corresponding closed-form equation (e.g., least-squares cylinder, RANSAC plane)
-
-The result: a lightweight, explainable, and editable CAD representation of the scanned or triangulated geometry.
-
-## Pipeline (Planned)
+## The Big Picture: STL -> STEP
 
 ```
-STEP/IGES  -->  STL Mesh  -->  Face-level Segmentation  -->  Per-primitive Analytic Fit
-                                    (plane / cylinder       (point-normal, axis+radius,
-                                     sphere / cone /         sphere center+radius,
-                                     fillet / ...)           cone apex+angle, ...)
+STL Mesh
+  -> [1] Mesh Segmentation        (which faces belong to the same surface?)
+    -> [2] AI Type Recognition    (plane / cylinder / sphere / cone?)  <-- THIS PROJECT
+      -> [3] Analytic Fitting     (least-squares per primitive)
+        -> [4] Surface Trim + Topology Reconstruction (intersections, B-Rep)
+          -> [5] STEP Export
 ```
 
-## Supported Primitive Types
+This project covers **steps 1 and 2 only**: segment a triangulated mesh into surface patches and classify each patch by its analytic primitive type. The downstream fitting, topology reconstruction, and STEP export are handled by the companion CAD engine.
 
-| Type | Parameters | Fitting Method |
-|------|-----------|----------------|
-| Plane | `(n, d)` — normal + offset | Least-squares / RANSAC |
-| Cylinder | `(axis, radius)` — axis direction + point + radius | Non-linear least-squares |
-| Sphere | `(center, radius)` | Linear least-squares |
-| Cone | `(apex, axis, angle)` | Non-linear least-squares |
-| Fillet / Blend | TBD | TBD |
+## Design Goals
 
-## Project Structure (Planned)
+- **Lightweight** — inference on consumer CPU, model under 100 MB
+- **Supervision from STEP** — use existing STEP files as ground truth: read B-Rep faces, tessellate, transfer surface type labels
+- **Four primitives first** — plane, cylinder, sphere, cone. Fillet/blend left for the CAD engine to auto-reconstruct via rolling ball.
+
+## Pipeline
+
+```
+STEP (B-Rep)                     STL Mesh
+     |                               |
+  pythonocc read              [1] Region growing
+  face -> surface type         + curvature-based
+       |                         clustering
+       v                               |
+  per-face labels  ---------->  [2] GNN / MeshCNN classifier
+       |                               |
+       +-- per-patch type ------------+
+```
+
+## Supported Types
+
+| Type | STEP Identifier |
+|------|-----------------|
+| Plane | `PLANE` |
+| Cylinder | `CYLINDRICAL_SURFACE` |
+| Sphere | `SPHERICAL_SURFACE` |
+| Cone | `CONICAL_SURFACE` |
+
+Fillet/blend is intentionally excluded — it is reconstructed automatically by the CAD engine via intersection-rolling-ball after basic surfaces are fitted.
+
+## Project Structure
 
 ```
 AiMeshGeoSegmenter/
-├── data/             # Dataset pipeline (STEP->STL, labeling)
-├── models/           # Segmentation network definitions
-├── fitting/          # Analytic surface fitting backends
-├── eval/             # Evaluation metrics and visualizers
-├── scripts/          # Training, inference, and data prep scripts
-└── configs/          # YAML config files for experiments
+├── data/             # STEP -> labeled mesh dataset pipeline
+├── models/           # GNN / MeshCNN classifiers
+├── scripts/          # Training, inference, evaluation
+└── configs/          # YAML experiment configs
 ```
 
 ## Requirements
 
 - Python 3.11+
-- PyTorch + PyTorch Geometric (or equivalent)
-- pythonocc-core (for STEP reading)
+- PyTorch + PyTorch Geometric
+- pythonocc-core (STEP reading)
 - numpy, scipy, open3d
 
 ## Quick Start
@@ -58,6 +72,17 @@ conda create -n aimesh python=3.11 -y
 conda activate aimesh
 pip install -r requirements.txt
 ```
+
+## Related Work
+
+| Paper | Venue | Link |
+|-------|-------|------|
+| SPFN — Supervised Primitive Fitting | CVPR 2019 Oral | [arXiv 1811.08988](https://arxiv.org/abs/1811.08988), [code](https://github.com/lingxiaoli94/SPFN) |
+| CPFN — Cascaded Primitive Fitting | ICCV 2021 | [code](https://github.com/erictuanle/CPFN) |
+| PrimitiveNet — Primitive Instance Segmentation | ICCV 2021 | [code](https://github.com/hjwdzh/PrimitiveNet) |
+| NVDNet — Split-and-Fit B-Rep Reconstruction | SIGGRAPH 2024 | [arXiv 2406.05261](https://arxiv.org/abs/2406.05261), [code](https://github.com/yilinliu77/NVDNet) |
+| STEP-Parts — B-Rep Partition for CAD Learning | 2026-04 | arXiv 2604.14927 |
+| MeshCNN — CNN for 3D Meshes | SIGGRAPH 2019 | [code](https://github.com/ranahanocka/MeshCNN) |
 
 ## License
 
