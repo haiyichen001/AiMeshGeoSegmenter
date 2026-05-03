@@ -168,6 +168,25 @@ def process_one(step_path):
             cz = sum(verts[2::3]) / vi
             area = face_area(face)
 
+            # Extract geometric parameters for fillet/chamfer detection
+            radius = 0.0
+            cone_half_len = 0.0
+            if st == GeomAbs_Cylinder:
+                try:
+                    radius = adapt.Cylinder().Radius()
+                except: pass
+            elif st == GeomAbs_Torus:
+                try:
+                    radius = adapt.Torus().MinorRadius()
+                except: pass
+            elif st == GeomAbs_Cone:
+                try:
+                    cone = adapt.Cone()
+                    sa = cone.SemiAngle()
+                    u1, u2, v1, v2 = adapt.Surface().Bounds()
+                    cone_half_len = abs(v2 - v1) * np.sin(sa) / 2.0
+                except: pass
+
             occ_type_name = OCCT_NAMES.get(st, "Other")
             label = TYPE_MAP.get(st, "freeform")
             occ_types[occ_type_name] += 1
@@ -181,6 +200,10 @@ def process_one(step_path):
                 "occ_type": occ_type_name,
                 "label": label,
                 "neighbors": sorted(face_neighbors.get(i, [])),
+                "smooth_edges": sum(1 for nb in face_neighbors.get(i, []) if face_continuity.get(i, {}).get(nb, False)),
+                "total_edges": len(face_neighbors.get(i, [])),
+                "radius": round(radius, 4),
+                "cone_half_len": round(cone_half_len, 4),
             })
 
         with open(out_path, 'w') as f:
@@ -189,6 +212,7 @@ def process_one(step_path):
                 "num_faces": len(faces_data),
                 "center": [(x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2],
                 "span": span,
+                "diagonal": float(np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)),
                 "occ_distribution": dict(occ_types),
                 "faces": faces_data,
             }, f)
