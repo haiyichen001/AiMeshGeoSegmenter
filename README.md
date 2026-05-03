@@ -29,11 +29,11 @@ This project covers **steps 1 and 2 only**.
 | 3 | Sphere | Center + radius | |
 | 4 | Cone | Apex + axis + angle | |
 | 5 | Torus | Major/minor radii + axis | |
-| 6 | Fillet | Analytic (cylinder/torus subset) | Constant-radius blends |
-| 7 | Chamfer | Analytic (plane subset) | Flat bevels |
-| 8 | Freeform | B-spline | Everything else |
+| 6 | Fillet | Analytic (cylinder/torus subset) | Detected via adjacency + area ratio |
+| 7 | Chamfer | Analytic (plane subset) | Detected via adjacency + dihedral angle |
+| 8 | Freeform | B-spline | Gear flanks, complex surfaces |
 
-Fillet and chamfer are promoted to first-class labels because: knowing which patches are blends directly guides the CAD engine's rolling-ball / edge-reconstruction step after primary surfaces are fitted.
+Fillet and chamfer are detected via post-processing: a Cylinder/Torus face with small area, exactly 2 neighbors, and tangent edges is a fillet. A small Plane face with ~45 degree dihedral to neighbors is a chamfer.
 
 ## Pipeline
 
