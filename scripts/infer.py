@@ -46,29 +46,32 @@ def segment_mesh(vertices, faces):
     mean = torch.tensor(ckpt["mean"])
     std = torch.tensor(ckpt["std"])
 
-    # Predict merge/cut for each edge using MLP + angle fallback
+    # Edge classifier: MLP on shared-edge geometric features
     edges_keep = []
     if len(adjacency) > 0:
         na = face_normals[adjacency[:, 0]]
         nb = face_normals[adjacency[:, 1]]
-        angle = np.arccos(np.clip((na * nb).sum(axis=1), -1, 1)) * 180 / np.pi
+        dihedral = np.arccos(np.clip((na * nb).sum(axis=1), -1, 1)) * 180 / np.pi
         area_min = np.minimum(face_areas[adjacency[:, 0]], face_areas[adjacency[:, 1]])
         area_max = np.maximum(face_areas[adjacency[:, 0]], face_areas[adjacency[:, 1]])
         area_ratio = np.where(area_max > 1e-12, area_min / area_max, 1.0)
-        dist = np.linalg.norm(face_centers[adjacency[:, 0]] - face_centers[adjacency[:, 1]], axis=1) / max(span, 1e-6)
 
-        X = np.stack([angle, area_ratio, dist, np.ones(len(adjacency)), np.zeros(len(adjacency))], axis=1)
+        edge_len_ratio = np.zeros(len(adjacency))
+        for idx, (a, b) in enumerate(adjacency):
+            shared = list(set(faces[a]) & set(faces[b]))
+            if len(shared) >= 2:
+                el = np.linalg.norm(vertices[shared[0]] - vertices[shared[1]])
+                avg_s = np.sqrt(max(face_areas[a], 1e-12) * 2 / np.sqrt(3))
+                edge_len_ratio[idx] = el / max(avg_s, 1e-6)
+
+        X = np.stack([dihedral, dihedral, area_ratio, edge_len_ratio, np.zeros(len(adjacency))], axis=1)
         X_t = (torch.tensor(X, dtype=torch.float32) - mean) / std
         with torch.no_grad():
             logits = edge_model(X_t)
-            mlp_keep = (torch.sigmoid(logits) > 0.5).numpy()
+            keep = (torch.sigmoid(logits) > 0.5).numpy()
 
-        # MLP prediction + angle guard
         for i in range(len(adjacency)):
-            # Hard guard: don't merge triangles with angle > 25 deg
-            if angle[i] > 25.0:
-                continue
-            if mlp_keep[i]:
+            if keep[i]:
                 edges_keep.append((adjacency[i, 0], adjacency[i, 1]))
 
     # Connected components

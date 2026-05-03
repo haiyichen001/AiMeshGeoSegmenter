@@ -89,20 +89,19 @@ def extract_training_data(label_file, max_pairs_per_face=50):
 
             positives.append([angle, area_ratio, dist, 1.0, 0.0])  # last 2: is_same_face, is_boundary
 
-    # Across-face negatives (triangles from adjacent B-Rep faces)
+    # Across-face negatives: closest triangle pairs between adjacent faces
+    # These simulate the real inference case: triangles at boundary that should be cut
     for idx, info in face_info.items():
         for nb_idx in info["neighbors"]:
             if nb_idx not in face_info:
                 continue
             nb_info = face_info[nb_idx]
-            other_verts = nb_info["verts"]
-            other_tris = nb_info["tris"]
-            if len(other_tris) < 1 or len(info["tris"]) < 1:
+            if len(nb_info["tris"]) < 1 or len(info["tris"]) < 1:
                 continue
 
             try:
-                nc = tri_centers = info["verts"][info["tris"]].mean(axis=1)
-                no = nb_info["verts"][nb_info["tris"]].mean(axis=1)
+                centers_a = info["verts"][info["tris"]].mean(axis=1)
+                centers_b = nb_info["verts"][nb_info["tris"]].mean(axis=1)
 
                 e1 = info["verts"][info["tris"][:, 1]] - info["verts"][info["tris"][:, 0]]
                 e2 = info["verts"][info["tris"][:, 2]] - info["verts"][info["tris"][:, 0]]
@@ -118,15 +117,19 @@ def extract_training_data(label_file, max_pairs_per_face=50):
             except:
                 continue
 
-            # Take random triangle pairs from the two faces
-            n_pairs = min(5, min(len(na), len(nb)))
-            for _ in range(n_pairs):
-                ai = np.random.randint(len(na))
-                bi = np.random.randint(len(nb))
+            # Find CLOSEST triangle pairs between the two faces
+            from scipy.spatial import KDTree
+            tree_b = KDTree(centers_b)
+            n_pairs = min(10, len(centers_a))
+            # Pick random triangles from face A, find nearest in face B
+            indices_a = np.random.choice(len(centers_a), n_pairs, replace=False)
+            dists, indices_b = tree_b.query(centers_a[indices_a])
+            for i, (ai, bi, d) in enumerate(zip(indices_a, indices_b, dists)):
                 dot = np.clip(np.dot(na[ai], nb[bi]), -1, 1)
                 angle = np.arccos(dot) * 180 / np.pi
-                dist = np.linalg.norm(nc[ai] - no[bi]) / span
-                negatives.append([angle, 0.5, dist, 0.0, 1.0])  # is_same_face=0, is_boundary=1
+                dist = d / max(span, 1e-6)
+                area_ratio = 0.5  # cannot compute without shared edge
+                negatives.append([angle, area_ratio, dist, 0.0, 1.0])
 
     return positives, negatives
 
