@@ -22,7 +22,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 
 LABEL_NAMES = ["plane", "cylinder", "sphere", "cone", "torus", "fillet", "chamfer", "freeform"]
 NUM_CLASSES = len(LABEL_NAMES)
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")
 
 # ---- Hyperparams ----
 HIDDEN_DIM = 128

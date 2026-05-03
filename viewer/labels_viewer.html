@@ -26,7 +26,8 @@ body{background:#0a0a0a;overflow:hidden;font-family:Arial}
   <a href="/labels" class="active">Labels</a>
 </div>
 <div id="toolbar">
-  <select id="partSelect"></select>
+  <input id="partSelect" list="partList" placeholder="Search part..." style="padding:6px 12px;font-size:13px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px">
+  <datalist id="partList"></datalist>
   <button id="btnReload">Reload</button>
 </div>
 <div id="legend"></div>
@@ -135,11 +136,12 @@ async function init() {
   initScene(); animate();
   const r = await fetch(`${BASE}/api/parts`);
   const parts = await r.json();
+  const list = document.getElementById('partList');
+  parts.forEach(p=>{const o=document.createElement('option');o.value=p;list.appendChild(o)});
   const sel = document.getElementById('partSelect');
-  parts.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o)});
   const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
   if(def) sel.value = def;
-  sel.addEventListener('change',()=>load(sel.value));
+  sel.addEventListener('input',()=>load(sel.value));
   document.getElementById('btnReload').addEventListener('click',()=>load(sel.value));
   await load(sel.value);
 }

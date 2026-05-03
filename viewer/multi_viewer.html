@@ -30,7 +30,8 @@ body{background:#0a0a0a;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif}
 </div>
 <div id="sidebar" style="margin-top:35px">
   <h2>Part</h2>
-  <select id="partSelect"></select>
+  <input id="partSelect" list="partList" placeholder="Search part..." style="width:100%;padding:8px;background:#1a1a1a;color:#ccc;border:1px solid #333;border-radius:4px;font-size:13px">
+  <datalist id="partList"></datalist>
   <button id="btnReload">Reload</button>
   <h2>Formats</h2>
   <div id="formatList"></div>
@@ -51,8 +52,6 @@ const BASE = '';
 const FORMATS = [
   {id:'step',label:'STEP (B-Rep)',color:0x4db8ff,api:'mesh'},
   {id:'stl',label:'STL (Mesh)',color:0xff8c00,api:'stl'},
-  {id:'ply',label:'Point Cloud',color:0x33ff4d,api:'points',isPoints:true},
-  {id:'npy',label:'Voxel (64^3)',color:0xcc33ff,api:'voxels',isVoxel:true},
 ];
 let syncing = false;
 let globalCenter = [0,0,0];
@@ -62,7 +61,7 @@ let scenes = [];
 let renderers = [];
 let controls = [];
 let groups = [];
-let activeFormats = ['step','stl','ply','npy'];
+let activeFormats = ['step','stl'];
 
 function broadcastCamera(src) {
   syncing = true;
@@ -317,11 +316,11 @@ async function init() {
   initSidebar();
   const r = await fetch(`${BASE}/api/parts`);
   const parts = await r.json();
-  const sel = document.getElementById('partSelect');
-  parts.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o)});
+  const list = document.getElementById('partList');
+  parts.forEach(p=>{const o=document.createElement('option');o.value=p;list.appendChild(o)});
   const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
   if(def) sel.value = def;
-  sel.addEventListener('change', loadAll);
+  sel.addEventListener('input', loadAll);
   document.getElementById('btnReload').addEventListener('click', loadAll);
   rebuildViews();
 }

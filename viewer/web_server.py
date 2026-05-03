@@ -145,6 +145,50 @@ def api_labels(part):
         "span": data.get("span", 1.0),
     })
 
+# ── Raw STL download ──
+@app.route("/api/stl_raw/<part>")
+def api_stl_raw(part):
+    stl_path = STL_DIR / f"{part}.stl"
+    if not stl_path.exists():
+        return jsonify({"error": "STL not found"}), 404
+    return send_file(str(stl_path), mimetype='application/octet-stream')
+
+# ── Inference: upload STL → predict labels ──
+@app.route("/infer")
+def infer_page():
+    return send_file(str(WEB_ROOT / "infer.html"))
+
+@app.route("/api/infer", methods=["POST"])
+def api_infer():
+    import tempfile, subprocess
+
+    if 'stl' not in request.files:
+        return jsonify({"error": "no STL file"}), 400
+    file = request.files['stl']
+    if file.filename == '':
+        return jsonify({"error": "empty filename"}), 400
+
+    tmp = tempfile.NamedTemporaryFile(suffix='.stl', delete=False)
+    try:
+        file.save(tmp.name)
+        tmp.close()
+        py = r"C:\miniconda3\envs\occ\python.exe"
+        env = os.environ.copy()
+        env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+        out = subprocess.run(
+            [py, str(DATA / "scripts" / "infer.py"), tmp.name],
+            capture_output=True, text=True, timeout=60,
+            cwd=str(DATA), env=env
+        )
+        if out.returncode != 0:
+            return jsonify({"error": out.stderr.strip()}), 500
+        return jsonify(json.loads(out.stdout))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        os.unlink(tmp.name)
+
+
 if __name__ == "__main__":
     print("AiMeshGeoSegmenter Viewer → http://localhost:8006")
     app.run(host="127.0.0.1", port=8006, debug=False)
