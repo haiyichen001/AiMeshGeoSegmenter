@@ -27,6 +27,7 @@ body{background:#0a0a0a;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif}
 <div id="navbar" style="position:fixed;top:0;left:0;right:0;z-index:200;display:flex;gap:0;background:#111;border-bottom:1px solid #333">
   <a href="/" style="padding:8px 16px;color:#4db8ff;text-decoration:none;font-size:13px;background:#1a1a1a">Compare</a>
   <a href="/labels" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Labels</a>
+  <a href="/infer" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Infer</a>
 </div>
 <div id="sidebar" style="margin-top:35px">
   <h2>Part</h2>
@@ -318,6 +319,7 @@ async function init() {
   const parts = await r.json();
   const list = document.getElementById('partList');
   parts.forEach(p=>{const o=document.createElement('option');o.value=p;list.appendChild(o)});
+  const sel = document.getElementById('partSelect');
   const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
   if(def) sel.value = def;
   sel.addEventListener('input', loadAll);
