@@ -9,6 +9,7 @@ import trimesh
 from collections import defaultdict
 import os as _os
 _os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+from pathlib import Path as P
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -25,58 +26,110 @@ COLORS = {
 }
 
 
-def segment_mesh(vertices, faces, angle_thresh_deg=20.0):
-    """Region-growing: merge adjacent triangles with similar normals."""
+def segment_mesh(vertices, faces):
+    """AI edge classifier: predict merge/cut for each adjacent triangle pair."""
     mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
     face_normals = mesh.face_normals
-    adjacency = mesh.face_adjacency  # (N, 2) pairs
+    face_centers = mesh.triangles_center
+    face_areas = mesh.area_faces
+    adjacency = mesh.face_adjacency
+    n_faces = len(faces)
+    span = max(vertices.max(axis=0) - vertices.min(axis=0))
+    if span < 1e-6:
+        span = 1.0
 
-    # Build adjacency list
+    # Load edge classifier
+    ckpt_path = str(P(__file__).parent.parent / "models" / "edge_classifier.pt")
+    ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+    edge_model = EdgeMLP(5).eval()
+    edge_model.load_state_dict(ckpt["model"])
+    mean = torch.tensor(ckpt["mean"])
+    std = torch.tensor(ckpt["std"])
+
+    # Predict merge/cut for each edge using MLP + angle fallback
+    edges_keep = []
+    if len(adjacency) > 0:
+        na = face_normals[adjacency[:, 0]]
+        nb = face_normals[adjacency[:, 1]]
+        angle = np.arccos(np.clip((na * nb).sum(axis=1), -1, 1)) * 180 / np.pi
+        area_min = np.minimum(face_areas[adjacency[:, 0]], face_areas[adjacency[:, 1]])
+        area_max = np.maximum(face_areas[adjacency[:, 0]], face_areas[adjacency[:, 1]])
+        area_ratio = np.where(area_max > 1e-12, area_min / area_max, 1.0)
+        dist = np.linalg.norm(face_centers[adjacency[:, 0]] - face_centers[adjacency[:, 1]], axis=1) / max(span, 1e-6)
+
+        X = np.stack([angle, area_ratio, dist, np.ones(len(adjacency)), np.zeros(len(adjacency))], axis=1)
+        X_t = (torch.tensor(X, dtype=torch.float32) - mean) / std
+        with torch.no_grad():
+            logits = edge_model(X_t)
+            mlp_keep = (torch.sigmoid(logits) > 0.5).numpy()
+
+        # MLP prediction + angle guard
+        for i in range(len(adjacency)):
+            # Hard guard: don't merge triangles with angle > 25 deg
+            if angle[i] > 25.0:
+                continue
+            if mlp_keep[i]:
+                edges_keep.append((adjacency[i, 0], adjacency[i, 1]))
+
+    # Connected components
     neighbors = defaultdict(list)
-    for a, b in adjacency:
+    for a, b in edges_keep:
         neighbors[a].append(b)
         neighbors[b].append(a)
 
-    n_faces = len(faces)
     labels = -np.ones(n_faces, dtype=int)
-    cos_thresh = np.cos(np.radians(angle_thresh_deg))
     current_label = 0
-
     for seed in range(n_faces):
         if labels[seed] >= 0:
             continue
         labels[seed] = current_label
         queue = [seed]
-        ref_normal = face_normals[seed]
         while queue:
             fi = queue.pop()
             for nb in neighbors.get(fi, []):
                 if labels[nb] >= 0:
                     continue
-                if np.dot(ref_normal, face_normals[nb]) > cos_thresh:
-                    labels[nb] = current_label
-                    queue.append(nb)
+                labels[nb] = current_label
+                queue.append(nb)
         current_label += 1
 
-    # Merge small patches (< 5 triangles) into largest neighbor
-    patch_counts = np.bincount(labels)
-    tiny = set(np.where(patch_counts < 5)[0])
+    # Assign isolated faces to nearest patch
     for fi in range(n_faces):
-        pid = labels[fi]
-        if pid not in tiny:
+        if labels[fi] >= 0:
             continue
-        best_pid = pid
-        for nb in neighbors.get(fi, []):
-            if labels[nb] not in tiny:
-                best_pid = labels[nb]
+        # Find closest adjacent face with a label
+        mesh_adj = mesh.face_adjacency
+        found = False
+        for a, b in mesh_adj:
+            if a == fi and labels[b] >= 0:
+                labels[fi] = labels[b]
+                found = True
                 break
-        labels[fi] = best_pid
+            if b == fi and labels[a] >= 0:
+                labels[fi] = labels[a]
+                found = True
+                break
+        if not found:
+            labels[fi] = current_label
+            current_label += 1
 
     # Re-map to consecutive IDs
     unique = sorted(set(labels))
     new_id = {old: i for i, old in enumerate(unique)}
     labels = np.array([new_id[l] for l in labels], dtype=int)
     return labels
+
+
+class EdgeMLP(nn.Module):
+    def __init__(self, in_dim=5):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, 32), nn.ReLU(),
+            nn.Linear(32, 16), nn.ReLU(),
+            nn.Linear(16, 1),
+        )
+    def forward(self, x):
+        return self.net(x).squeeze(-1)
 
 
 def patch_features(vertices, faces, patch_labels):
@@ -207,7 +260,7 @@ def predict_stl(stl_path, model_path=None):
     from pathlib import Path as P
     model = GNN(feats.shape[1])
     model_path = model_path or str(P(__file__).parent.parent / "models" / "face_classifier.pt")
-    model.load_state_dict(torch.load(model_path, map_location='cpu'))
+    model.load_state_dict(torch.load(model_path, map_location='cpu', weights_only=False))
     model.eval()
 
     with torch.no_grad():

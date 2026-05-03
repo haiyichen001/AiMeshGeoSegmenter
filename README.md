@@ -5,21 +5,24 @@ Surface type classification for STL-to-STEP reverse engineering. Given a tessell
 ## The Big Picture
 
 ```
-STL Mesh
-  -> [1] Mesh Segmentation        (which faces belong to the same surface?)
-    -> [2] AI Type Classification (8 classes)                              <-- THIS PROJECT
-      -> [3] Surface Fitting      (analytic for 1-7, B-spline for 8)
-        -> [4] Topology Reconstruction + STEP Export
+STL Mesh (triangles)
+  -> [1] Edge Classifier (MLP)         merge or cut adjacent triangles?     <-- AI
+    -> [2] Mesh Segmentation           group connected triangles into patches
+      -> [3] Face Classifier (GNN)     plane / cylinder / sphere / ...?     <-- AI
+        -> [4] Surface Fitting         analytic or B-spline
+          -> [5] Topology Reconstruction + STEP Export
 ```
 
-This project covers **steps 1 and 2 only**.
+This project covers **steps 1-3 only**.
 
 ## Status
 
-- **Samples**: 22,372 STEP/STL pairs (ISO standard parts + simple mechanical components)
-- **Model**: GraphSAGE, 80K params, 326KB, 99.7% test accuracy
-- **Viewer**: http://localhost:8006 (STEP + STL + Labels)
-- **Labels**: 8 classes, extracted from STEP B-Rep + adjacency heuristics
+- **Samples**: 22,372 STEP/STL pairs
+- **Models**:
+  - Edge Classifier: MLP binary (merge/cut adjacent triangles), ~5K params
+  - Face Classifier: GraphSAGE 8-class, 80K params, 325KB, 97.2% accuracy
+- **Viewer**: http://localhost:8006 (Compare / Labels / Infer)
+- **Infer tab**: upload STL → full AI pipeline → labeled 3D view
 
 ## Supported Classes
 
