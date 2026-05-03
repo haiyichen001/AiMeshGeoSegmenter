@@ -31,7 +31,7 @@ body{background:#0a0a0a;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif}
 </div>
 <div id="sidebar" style="margin-top:35px">
   <h2>Part</h2>
-  <input id="partSelect" placeholder="Type part name then Enter..." style="width:100%;padding:8px;background:#1a1a1a;color:#ccc;border:1px solid #333;border-radius:4px;font-size:13px">
+  <select id="partSelect" style="width:100%;padding:8px;background:#1a1a1a;color:#ccc;border:1px solid #333;border-radius:4px;font-size:13px"></select>
   <button id="btnReload">Reload</button>
   <h2>Formats</h2>
   <div id="formatList"></div>
@@ -317,16 +317,27 @@ async function init() {
   const r = await fetch(`${BASE}/api/parts`);
   const parts = await r.json();
   const sel = document.getElementById('partSelect');
+  // Group by category
+  const groups = {};
+  parts.forEach(p => {
+    let g = 'ABC';
+    const pfxs = ['HexagonNut','HexHeadBolt','SocketHeadCap','Countersunk','PanHead',
+      'SetScrew','PlainWasher','ChamferedWasher','DeepGroove','CappedDeep','AngularContact',
+      'CylindricalRoller','TaperedRoller','SpurGear','BevelGear','CrossedHelical',
+      'RackGear','RingGear','WormGear'];
+    for (const pf of pfxs) { if (p.includes(pf)) { g = pf; break; } }
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(p);
+  });
+  for (const g of Object.keys(groups).sort()) {
+    const og = document.createElement('optgroup');
+    og.label = g + ' (' + groups[g].length + ')';
+    groups[g].forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; og.appendChild(o); });
+    sel.appendChild(og);
+  }
   const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
   if(def) sel.value = def;
-  function selectPart(val) {
-    val = val.trim();
-    if (!val) return;
-    if (parts.includes(val)) { sel.value = val; loadAll(); return; }
-    const match = parts.find(p => p.startsWith(val) || p.toLowerCase().includes(val.toLowerCase()));
-    if (match) { sel.value = match; loadAll(); }
-  }
-  sel.addEventListener('keydown', e=>{if(e.key==='Enter'){e.preventDefault();selectPart(sel.value);}});
+  sel.addEventListener('change', loadAll);
   document.getElementById('btnReload').addEventListener('click', loadAll);
   rebuildViews();
 }
