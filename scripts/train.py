@@ -82,114 +82,121 @@ def main():
     graphs = [load_graph(f) for f in files]
     print(f"Loaded in {time.time()-t0:.1f}s")
 
-    # Train/val/test split
+    # K-fold cross-validation
+    K = 5
     random.seed(42)
     random.shuffle(graphs)
-    n_train = int(len(graphs) * TRAIN_RATIO)
-    n_val = int(len(graphs) * VAL_RATIO)
-    train_graphs = graphs[:n_train]
-    val_graphs = graphs[n_train : n_train + n_val]
-    test_graphs = graphs[n_train + n_val:]
-    print(f"Train: {len(train_graphs)}, Val: {len(val_graphs)}, Test: {len(test_graphs)}")
+    fold_size = len(graphs) // K
+    folds = [graphs[i*fold_size:(i+1)*fold_size] for i in range(K)]
+    # Handle remainder
+    for i in range(len(graphs) - K*fold_size):
+        folds[i].append(graphs[K*fold_size + i])
 
-    train_loader = DataLoader(train_graphs, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_graphs, batch_size=BATCH_SIZE * 2, shuffle=False)
-    test_loader = DataLoader(test_graphs, batch_size=BATCH_SIZE * 2, shuffle=False)
-
-    # Label stats
-    all_labels = []
-    for g in train_graphs:
-        all_labels.extend(g.y.numpy().tolist())
-    label_counts = collections.Counter(all_labels)
-    total = sum(label_counts.values())
-    print("Train label distribution:")
-    for i, name in enumerate(LABEL_NAMES):
-        c = label_counts.get(i, 0)
-        print(f"  {name:12s}  {c:6d}  ({c/total*100:5.1f}%)")
-
-    # Compute class weights for balanced loss
-    class_weights = torch.zeros(NUM_CLASSES)
-    for i in range(NUM_CLASSES):
-        class_weights[i] = total / max(label_counts.get(i, 1), 1)
-    class_weights = class_weights.to(DEVICE)
-
-    # Model
     in_dim = graphs[0].x.shape[1]
-    model = FaceClassifier(in_dim, HIDDEN_DIM, NUM_CLASSES, NUM_LAYERS, DROPOUT).to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
-    print(f"\nModel: {sum(p.numel() for p in model.parameters()):,} params")
-    print(f"Device: {DEVICE}")
-    print(f"Input dim: {in_dim}")
+    fold_accs = []
 
-    def evaluate(loader):
-        model.eval()
-        correct, total, loss_sum = 0, 0, 0.0
-        with torch.no_grad():
-            for batch in loader:
+    for fold_idx in range(K):
+        print(f"\n{'='*50}")
+        print(f"FOLD {fold_idx+1}/{K}")
+        print(f"{'='*50}")
+
+        val_graphs = folds[fold_idx]
+        train_graphs = [g for i in range(K) if i != fold_idx for g in folds[i]]
+        print(f"Train: {len(train_graphs)}, Val: {len(val_graphs)}")
+
+        train_loader = DataLoader(train_graphs, batch_size=BATCH_SIZE, shuffle=True)
+        val_loader = DataLoader(val_graphs, batch_size=BATCH_SIZE * 2, shuffle=False)
+
+        # Class weights from training set
+        all_labels = []
+        for g in train_graphs:
+            all_labels.extend(g.y.numpy().tolist())
+        label_counts = collections.Counter(all_labels)
+        total = sum(label_counts.values())
+        class_weights = torch.zeros(NUM_CLASSES)
+        for i in range(NUM_CLASSES):
+            class_weights[i] = total / max(label_counts.get(i, 1), 1)
+        class_weights = class_weights.to(DEVICE)
+
+        def evaluate(loader):
+            model.eval()
+            correct, total_, loss_sum = 0, 0, 0.0
+            with torch.no_grad():
+                for batch in loader:
+                    batch = batch.to(DEVICE)
+                    out = model(batch)
+                    loss = F.nll_loss(out, batch.y, weight=class_weights)
+                    loss_sum += loss.item() * batch.num_graphs
+                    pred = out.argmax(dim=1)
+                    correct += (pred == batch.y).sum().item()
+                    total_ += batch.y.size(0)
+            return correct / total_, loss_sum / len(loader.dataset)
+
+        model = FaceClassifier(in_dim, HIDDEN_DIM, NUM_CLASSES, NUM_LAYERS, DROPOUT).to(DEVICE)
+        optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
+
+        best_val_acc = 0
+        for epoch in range(1, EPOCHS + 1):
+            model.train()
+            for batch in train_loader:
                 batch = batch.to(DEVICE)
+                optimizer.zero_grad()
                 out = model(batch)
                 loss = F.nll_loss(out, batch.y, weight=class_weights)
-                loss_sum += loss.item() * batch.num_graphs
-                pred = out.argmax(dim=1)
-                correct += (pred == batch.y).sum().item()
-                total += batch.y.size(0)
-        return correct / total, loss_sum / len(loader.dataset)
+                loss.backward()
+                optimizer.step()
+            scheduler.step()
 
-    # Training
-    best_val_acc = 0
+            _, val_acc = evaluate(val_loader)[0], evaluate(val_loader)[0]
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+            if epoch % 20 == 0:
+                train_acc, _ = evaluate(train_loader)
+                print(f"  Epoch {epoch:3d} | train={train_acc:.3f} val={val_acc:.3f}")
+
+        fold_accs.append(best_val_acc)
+        print(f"  Fold {fold_idx+1} best val acc: {best_val_acc:.4f}")
+
+    print(f"\n{'='*50}")
+    print(f"K-FOLD RESULTS (k={K})")
+    print(f"{'='*50}")
+    print(f"Fold accuracies: {[f'{a:.4f}' for a in fold_accs]}")
+    print(f"Mean: {np.mean(fold_accs):.4f}")
+    print(f"Std:  {np.std(fold_accs):.4f}")
+
+    # Train final model on all data
+    print(f"\nTraining final model on all {len(graphs)} graphs...")
+    all_loader = DataLoader(graphs, batch_size=BATCH_SIZE, shuffle=True)
+    final_model = FaceClassifier(in_dim, HIDDEN_DIM, NUM_CLASSES, NUM_LAYERS, DROPOUT).to(DEVICE)
+    opt = torch.optim.Adam(final_model.parameters(), lr=LR, weight_decay=1e-5)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=EPOCHS)
+
+    # Class weights for all data
+    all_labels = []
+    for g in graphs:
+        all_labels.extend(g.y.numpy().tolist())
+    lc = collections.Counter(all_labels)
+    t = sum(lc.values())
+    cw = torch.zeros(NUM_CLASSES)
+    for i in range(NUM_CLASSES):
+        cw[i] = t / max(lc.get(i, 1), 1)
+    cw = cw.to(DEVICE)
+
     for epoch in range(1, EPOCHS + 1):
-        model.train()
-        train_loss = 0.0
-        for batch in train_loader:
+        final_model.train()
+        for batch in all_loader:
             batch = batch.to(DEVICE)
-            optimizer.zero_grad()
-            out = model(batch)
-            loss = F.nll_loss(out, batch.y, weight=class_weights)
+            opt.zero_grad()
+            out = final_model(batch)
+            loss = F.nll_loss(out, batch.y, weight=cw)
             loss.backward()
-            optimizer.step()
-            train_loss += loss.item() * batch.num_graphs
-        scheduler.step()
+            opt.step()
+        sched.step()
 
-        train_acc, _ = evaluate(train_loader)
-        val_acc, val_loss = evaluate(val_loader)
-
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            torch.save(model.state_dict(), MODEL_DIR / "face_classifier.pt")
-
-        if epoch % 10 == 0 or epoch == 1:
-            print(f"Epoch {epoch:3d} | train acc={train_acc:.3f} | val acc={val_acc:.3f} | val loss={val_loss:.4f}")
-
-    # Final test
-    model.load_state_dict(torch.load(MODEL_DIR / "face_classifier.pt", map_location=DEVICE))
-    test_acc, test_loss = evaluate(test_loader)
-    print(f"\n=== Test Accuracy: {test_acc:.4f} ===")
-
-    # Per-class test accuracy
-    model.eval()
-    class_correct = collections.Counter()
-    class_total = collections.Counter()
-    with torch.no_grad():
-        for batch in test_loader:
-            batch = batch.to(DEVICE)
-            out = model(batch)
-            pred = out.argmax(dim=1)
-            for i in range(batch.y.size(0)):
-                gt = batch.y[i].item()
-                class_total[gt] += 1
-                if pred[i].item() == gt:
-                    class_correct[gt] += 1
-
-    print("\nPer-class accuracy:")
-    for i, name in enumerate(LABEL_NAMES):
-        c = class_correct.get(i, 0)
-        t = class_total.get(i, 1)
-        print(f"  {name:12s}  {c:5d}/{t:5d}  ({c/t*100:5.1f}%)")
-
-    # Model size
+    torch.save(final_model.state_dict(), MODEL_DIR / "face_classifier.pt")
     model_size = os.path.getsize(MODEL_DIR / "face_classifier.pt")
-    print(f"\nModel saved: {model_size/1024:.0f} KB")
+    print(f"Final model saved: {model_size/1024:.0f} KB")
 
 
 if __name__ == "__main__":

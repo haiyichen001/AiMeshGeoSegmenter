@@ -175,59 +175,16 @@ if __name__ == "__main__":
     random.seed(42)
     random.shuffle(files)
 
-    n_train = int(len(files) * 0.8)
-    train_files = files[:n_train]
-    test_files = files[n_train:]
-
-    print(f"Train parts: {len(train_files)}, Test parts: {len(test_files)}")
-
+    # K-fold cross-validation
+    K = 5
     n_workers = max(1, cpu_count() - 1)
-    print(f"Workers: {n_workers}")
+    fold_size = len(files) // K
+    folds = [files[i*fold_size:(i+1)*fold_size] for i in range(K)]
+    for i in range(len(files) - K*fold_size):
+        folds[i].append(files[K*fold_size + i])
 
-    all_pos, all_neg = [], []
-    t0 = time.time()
+    fold_accs = []
 
-    with Pool(n_workers) as p:
-        for i, (pos, neg) in enumerate(p.imap_unordered(process_one, train_files, chunksize=10)):
-            all_pos.extend(pos)
-            all_neg.extend(neg)
-            if (i + 1) % 2000 == 0:
-                print(f"  [{i+1}/{len(train_files)}] pos={len(all_pos)} neg={len(all_neg)}")
-
-    print(f"Extracted in {time.time()-t0:.0f}s: pos={len(all_pos)} neg={len(all_neg)}")
-
-    # Balance
-    n_samples = min(len(all_pos), len(all_neg))
-    pos = random.sample(all_pos, n_samples)
-    neg = random.sample(all_neg, n_samples)
-
-    X = np.array(pos + neg, dtype=np.float32)
-    y = np.array([1] * n_samples + [0] * n_samples, dtype=np.float32)
-
-    idx = np.random.permutation(len(X))
-    X, y = X[idx], y[idx]
-
-    mean = X.mean(axis=0)
-    std = X.std(axis=0).clip(1e-6)
-    X = (X - mean) / std
-
-    # Test
-    test_pos, test_neg = [], []
-    with Pool(n_workers) as p:
-        for pos, neg in p.imap_unordered(process_one, test_files, chunksize=10):
-            test_pos.extend(pos)
-            test_neg.extend(neg)
-
-    n_test = min(len(test_pos), len(test_neg))
-    test_pos = random.sample(test_pos, n_test)
-    test_neg = random.sample(test_neg, n_test)
-    X_test = np.array(test_pos + test_neg, dtype=np.float32)
-    y_test = np.array([1] * n_test + [0] * n_test, dtype=np.float32)
-    X_test = (X_test - mean) / std
-
-    print(f"Train: {len(X)}, Test: {len(X_test)}")
-
-    # Model
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
@@ -243,40 +200,93 @@ if __name__ == "__main__":
         def forward(self, x):
             return self.net(x).squeeze(-1)
 
-    model = EdgeCls(5)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    print(f"Model: {sum(p.numel() for p in model.parameters())} params")
+    for fold_idx in range(K):
+        print(f"\n{'='*50}")
+        print(f"FOLD {fold_idx+1}/{K}")
+        print(f"{'='*50}")
 
-    X_t = torch.tensor(X)
-    y_t = torch.tensor(y)
-    X_te = torch.tensor(X_test)
-    y_te = torch.tensor(y_test)
+        val_files = folds[fold_idx]
+        train_files = [f for i in range(K) if i != fold_idx for f in folds[i]]
+        print(f"Train parts: {len(train_files)}, Val parts: {len(val_files)}")
 
-    best_acc = 0
-    bs = 4096
+        # Extract training data
+        all_pos, all_neg = [], []
+        t0 = time.time()
+        with Pool(n_workers) as p:
+            for i, (pos, neg) in enumerate(p.imap_unordered(process_one, train_files, chunksize=10)):
+                all_pos.extend(pos); all_neg.extend(neg)
+                if (i+1) % 2000 == 0:
+                    print(f"  [{i+1}/{len(train_files)}] pos={len(all_pos)} neg={len(all_neg)}")
+
+        n_samples = min(len(all_pos), len(all_neg))
+        pos = random.sample(all_pos, n_samples)
+        neg = random.sample(all_neg, n_samples)
+        X = np.array(pos + neg, dtype=np.float32)
+        y = np.array([1]*n_samples + [0]*n_samples, dtype=np.float32)
+        idx = np.random.permutation(len(X)); X, y = X[idx], y[idx]
+        mean = X.mean(axis=0); std = X.std(axis=0).clip(1e-6)
+        X = (X - mean) / std
+
+        # Extract validation data
+        val_pos, val_neg = [], []
+        with Pool(n_workers) as p:
+            for pos, neg in p.imap_unordered(process_one, val_files, chunksize=10):
+                val_pos.extend(pos); val_neg.extend(neg)
+        n_val = min(len(val_pos), len(val_neg))
+        vp = random.sample(val_pos, n_val); vn = random.sample(val_neg, n_val)
+        X_val = np.array(vp+vn, dtype=np.float32); y_val = np.array([1]*n_val+[0]*n_val, dtype=np.float32)
+        X_val = (X_val - mean) / std
+
+        # Train
+        model = EdgeCls(5)
+        opt = torch.optim.Adam(model.parameters(), lr=0.001)
+        X_t = torch.tensor(X); y_t = torch.tensor(y)
+        X_v = torch.tensor(X_val); y_v = torch.tensor(y_val)
+        best_acc = 0; bs = 4096
+
+        for epoch in range(1, 31):
+            model.train()
+            perm = torch.randperm(len(X))
+            for i in range(0, len(X), bs):
+                bi = perm[i:i+bs]; opt.zero_grad()
+                loss = F.binary_cross_entropy_with_logits(model(X_t[bi]), y_t[bi])
+                loss.backward(); opt.step()
+            model.eval()
+            with torch.no_grad():
+                pred = (torch.sigmoid(model(X_v)) > 0.5).float()
+                acc = (pred == y_v).float().mean().item()
+                if acc > best_acc: best_acc = acc
+
+        fold_accs.append(best_acc)
+        print(f"  Fold {fold_idx+1} val acc: {best_acc:.4f}")
+
+    print(f"\n{'='*50}")
+    print(f"K-FOLD RESULTS (k={K})")
+    print(f"{'='*50}")
+    print(f"Fold accuracies: {[f'{a:.4f}' for a in fold_accs]}")
+    print(f"Mean: {np.mean(fold_accs):.4f}")
+    print(f"Std:  {np.std(fold_accs):.4f}")
+
+    # Train final model on all data
+    print(f"\nTraining final model on all {len(files)} parts...")
+    all_pos, all_neg = [], []
+    with Pool(n_workers) as p:
+        for pos, neg in p.imap_unordered(process_one, files, chunksize=10):
+            all_pos.extend(pos); all_neg.extend(neg)
+    n_all = min(len(all_pos), len(all_neg))
+    pa = random.sample(all_pos, n_all); na = random.sample(all_neg, n_all)
+    X_all = np.array(pa+na, dtype=np.float32); y_all = np.array([1]*n_all+[0]*n_all, dtype=np.float32)
+    idx = np.random.permutation(len(X_all)); X_all, y_all = X_all[idx], y_all[idx]
+    mean_all = X_all.mean(axis=0); std_all = X_all.std(axis=0).clip(1e-6)
+    X_all = (X_all - mean_all) / std_all
+
+    final_model = EdgeCls(5); opt = torch.optim.Adam(final_model.parameters(), lr=0.001)
+    Xa = torch.tensor(X_all); ya = torch.tensor(y_all)
     for epoch in range(1, 41):
-        model.train()
-        perm = torch.randperm(len(X))
-        for i in range(0, len(X), bs):
-            bi = perm[i:i+bs]
-            out = model(X_t[bi])
-            loss = F.binary_cross_entropy_with_logits(out, y_t[bi])
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+        final_model.train()
+        perm = torch.randperm(len(X_all))
+        for i in range(0, len(X_all), bs): bi=perm[i:i+bs]; opt.zero_grad(); loss=F.binary_cross_entropy_with_logits(final_model(Xa[bi]), ya[bi]); loss.backward(); opt.step()
 
-        model.eval()
-        with torch.no_grad():
-            out = model(X_te)
-            pred = (torch.sigmoid(out) > 0.5).float()
-            acc = (pred == y_te).float().mean().item()
-            if acc > best_acc:
-                best_acc = acc
-                torch.save({"model": model.state_dict(), "mean": mean, "std": std},
-                           ROOT / "models" / "edge_classifier.pt")
-
-        if epoch % 10 == 0 or epoch == 1:
-            print(f"Epoch {epoch:3d} | test acc={acc:.4f}")
-
-    print(f"\nBest test accuracy: {best_acc:.4f}")
+    torch.save({"model": final_model.state_dict(), "mean": mean_all, "std": std_all},
+               ROOT / "models" / "edge_classifier.pt")
     print(f"Model saved: {os.path.getsize(ROOT / 'models' / 'edge_classifier.pt') / 1024:.0f} KB")
