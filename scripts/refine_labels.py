@@ -81,32 +81,29 @@ def process_one(label_file):
         radius = f.get("radius", 0)
         cone_half = f.get("cone_half_len", 0)
 
-        # --- Fillet: 0.5*radius + 0.25*nbr + 0.25*area ---
-        if occ in ("Cylinder", "Torus") and n_nbrs == 2:
+        # --- Fillet: radius small AND area small (hard gate) ---
+        if occ in ("Cylinder", "Torus") and n_nbrs == 2 and area_ratio < AREA_RATIO_THRESH:
             r_score = 1.0 if radius > 0 and radius < diagonal * 0.05 else 0.0
             n_score = 1.0
-            a_score = 1.0 if area_ratio < AREA_RATIO_THRESH else 0.0
-            score = 0.5 * r_score + 0.25 * n_score + 0.25 * a_score
+            score = 0.6 * r_score + 0.4 * n_score
             if score > 0.5:
                 f["label"] = "fillet"; stats["fillet"] += 1; continue
 
-        # --- Chamfer (Cone): 0.5*len + 0.25*nbr + 0.25*area ---
-        if occ == "Cone" and n_nbrs == 2:
+        # --- Chamfer (Cone): length small AND area small (hard gate) ---
+        if occ == "Cone" and n_nbrs == 2 and area_ratio < AREA_RATIO_THRESH:
             l_score = 1.0 if cone_half > 0 and cone_half < diagonal * 0.05 else 0.0
             n_score = 1.0
-            a_score = 1.0 if area_ratio < AREA_RATIO_THRESH else 0.0
-            score = 0.5 * l_score + 0.25 * n_score + 0.25 * a_score
+            score = 0.6 * l_score + 0.4 * n_score
             if score > 0.5:
                 f["label"] = "chamfer"; stats["chamfer"] += 1; continue
 
-        # --- Chamfer (Plane): 0.5*angle + 0.25*nbr + 0.25*area ---
-        if occ == "Plane" and n_nbrs >= 2:
+        # --- Chamfer (Plane): bevel angles AND area small (hard gate) ---
+        if occ == "Plane" and n_nbrs == 2 and area_ratio < PLANE_CHAMFER_RATIO:
             angles = [faces_angle(f, face_by_id.get(n, {})) for n in nbrs]
-            good = [a for a in angles if a > 15]
-            ang_score = len(good) / max(len(angles), 1) if angles else 0
-            n_score = 1.0 if n_nbrs == 2 else 0.5
-            a_score = 1.0 if area_ratio < PLANE_CHAMFER_RATIO else 0.0
-            score = 0.5 * ang_score + 0.25 * n_score + 0.25 * a_score
+            good = [a for a in angles if 15 < a < 75]
+            ang_score = len(good) / 2.0
+            n_score = 1.0
+            score = 0.6 * ang_score + 0.4 * n_score
             if score > 0.5:
                 f["label"] = "chamfer"; stats["chamfer"] += 1; continue
 

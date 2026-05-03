@@ -12,6 +12,7 @@ import os, sys, json, collections, time
 from pathlib import Path
 from multiprocessing import Pool, cpu_count
 import numpy as np
+import math
 
 ROOT = Path(__file__).parent.parent
 STEP_DIR = ROOT / "data" / "step"
@@ -183,8 +184,9 @@ def process_one(step_path):
                 try:
                     cone = adapt.Cone()
                     sa = cone.SemiAngle()
-                    u1, u2, v1, v2 = adapt.Surface().Bounds()
-                    cone_half_len = abs(v2 - v1) * np.sin(sa) / 2.0
+                    v1 = adapt.FirstVParameter()
+                    v2 = adapt.LastVParameter()
+                    cone_half_len = abs(v2 - v1) * np.sin(float(sa)) / 2.0
                 except: pass
 
             occ_type_name = OCCT_NAMES.get(st, "Other")
@@ -200,7 +202,7 @@ def process_one(step_path):
                 "occ_type": occ_type_name,
                 "label": label,
                 "neighbors": sorted(face_neighbors.get(i, [])),
-                "smooth_edges": sum(1 for nb in face_neighbors.get(i, []) if face_continuity.get(i, {}).get(nb, False)),
+                "smooth_edges": 0,
                 "total_edges": len(face_neighbors.get(i, [])),
                 "radius": round(radius, 4),
                 "cone_half_len": round(cone_half_len, 4),

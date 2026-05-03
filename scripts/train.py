@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import SAGEConv
-from torch_geometric.data import Data, DataLoader
+from torch_geometric.data import Data, DataLoader, Batch
 from torch_geometric.utils import add_self_loops
 
 ROOT = Path(r"D:\AiMeshGeoSegmenter")
@@ -92,6 +92,18 @@ def main():
     for i in range(len(graphs) - K*fold_size):
         folds[i].append(graphs[K*fold_size + i])
 
+    def rotate_graph(graph):
+        """Random 3D rotation of normal + center features."""
+        # Random rotation matrix (Rodrigues)
+        axis = torch.randn(3); axis = axis / axis.norm()
+        angle = torch.rand(1).item() * 2 * 3.14159
+        Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+        R = torch.eye(3) + torch.sin(torch.tensor(angle)) * K + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
+        g = graph.clone()
+        g.x[:, 1:4] = g.x[:, 1:4] @ R.T  # normal
+        g.x[:, 5:8] = g.x[:, 5:8] @ R.T  # center
+        return g
+
     in_dim = graphs[0].x.shape[1]
     fold_accs = []
 
@@ -141,6 +153,13 @@ def main():
             model.train()
             for batch in train_loader:
                 batch = batch.to(DEVICE)
+                # Rotation augmentation: random 3D rotation of normal+center features
+                axis = torch.randn(3, device=DEVICE); axis = axis / axis.norm()
+                angle = torch.rand(1, device=DEVICE).item() * 2 * 3.14159
+                Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]], device=DEVICE, dtype=torch.float32)
+                R = torch.eye(3, device=DEVICE) + torch.sin(torch.tensor(angle)) * Kmat + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
+                batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T
+                batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
                 optimizer.zero_grad()
                 out = model(batch)
                 loss = F.nll_loss(out, batch.y, weight=class_weights)
@@ -187,6 +206,12 @@ def main():
         final_model.train()
         for batch in all_loader:
             batch = batch.to(DEVICE)
+            axis = torch.randn(3, device=DEVICE); axis = axis / axis.norm()
+            angle = torch.rand(1, device=DEVICE).item() * 2 * 3.14159
+            Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]], device=DEVICE, dtype=torch.float32)
+            R = torch.eye(3, device=DEVICE) + torch.sin(torch.tensor(angle)) * K + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
+            batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T
+            batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
             opt.zero_grad()
             out = final_model(batch)
             loss = F.nll_loss(out, batch.y, weight=cw)
@@ -194,8 +219,8 @@ def main():
             opt.step()
         sched.step()
 
-    torch.save(final_model.state_dict(), MODEL_DIR / "face_classifier.pt")
-    model_size = os.path.getsize(MODEL_DIR / "face_classifier.pt")
+    torch.save(final_model.state_dict(), MODEL_DIR / "face_classifier_v2.pt")
+    model_size = os.path.getsize(MODEL_DIR / "face_classifier_v2.pt")
     print(f"Final model saved: {model_size/1024:.0f} KB")
 
 
