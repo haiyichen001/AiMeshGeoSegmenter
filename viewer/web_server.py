@@ -12,6 +12,7 @@ STEP_DIR = DATA / "data" / "step"
 STL_DIR = DATA / "data" / "stl"
 LABEL_DIR = DATA / "data" / "labels"
 app = Flask(__name__)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
 # STEP shape cache
 _shape_cache = {}
