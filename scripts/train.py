@@ -31,7 +31,7 @@ if DEVICE.type == 'cuda':
     def check_vram():
         reserved = torch.cuda.memory_reserved()
         if reserved > VRAM_LIMIT * 0.95:
-            print(f"  WARNING: VRAM {alloc/1e9:.1f}GB near limit {VRAM_LIMIT/1e9:.1f}GB, clearing cache")
+            print(f"  WARNING: VRAM {reserved/1e9:.1f}GB near limit {VRAM_LIMIT/1e9:.1f}GB, clearing cache")
             torch.cuda.empty_cache()
 
 
@@ -105,7 +105,7 @@ def load_part(fp):
 if __name__ == "__main__":
     files = sorted(DATA_DIR.glob("*.npz"))
     random.seed(42); random.shuffle(files)
-    files = files[:2000]
+    files = files[:5000]
     print(f"Loading {len(files)} parts..."); t0=time.time()
     graphs = [load_part(f) for f in files]
     print(f"Loaded in {time.time()-t0:.0f}s")
@@ -127,14 +127,15 @@ if __name__ == "__main__":
         model = TriangleGAT(in_dim=graphs[0].x.shape[1], hidden=HIDDEN, heads=HEADS,
                             n_classes=NC, n_layers=LAYERS, dropout=DROPOUT).to(DEVICE)
         if fold_idx == 0:
-            BS = auto_batch(model, tg); print(f"  Params: {sum(p.numel() for p in model.parameters()):,}")
+            BS = auto_batch(model, tg); n_params = sum(p.numel() for p in model.parameters())
+            print(f"  Params: {n_params:,}")
 
         tl = DataLoader(tg, batch_size=BS, shuffle=True); vl = DataLoader(vg, batch_size=BS*2, shuffle=False)
         all_l = np.concatenate([g.y.numpy() for g in tg]); tc = sum(all_l); cw = torch.zeros(NC)
         for i in range(NC): cw[i] = (tc/max(collections.Counter(all_l).get(i,1),1))**0.5
         cw = cw.to(DEVICE); opt = torch.optim.AdamW(model.parameters(), lr=0.001, weight_decay=1e-4)
 
-        best = 0; patience = 0; hist = {'loss':[], 'acc':[]}
+        best = 0; patience = 0; hist = {'loss':[], 'val_loss':[], 'acc':[]}
         for epoch in range(1, EPOCHS+1):
             model.train(); tls, nb = 0, 0; check_vram()
             for batch in tl:
@@ -142,17 +143,21 @@ if __name__ == "__main__":
                 loss = F.cross_entropy(model(batch), batch.y, weight=cw, label_smoothing=0.05)
                 loss.backward(); opt.step(); tls += loss.item()*batch.num_graphs; nb += 1
             hist['loss'].append(tls/len(tg))
-            model.eval(); correct, total = 0, 0
+            model.eval(); correct, total, vls = 0, 0, 0
             with torch.no_grad():
                 for batch in vl:
-                    batch = batch.to(DEVICE); pred = model(batch).argmax(dim=1)
+                    batch = batch.to(DEVICE)
+                    logits = model(batch)
+                    vls += F.cross_entropy(logits, batch.y, weight=cw).item() * batch.num_graphs
+                    pred = logits.argmax(dim=1)
                     correct += (pred==batch.y).sum().item(); total += batch.y.size(0)
+            hist['val_loss'].append(vls/len(vg))
             acc = correct/max(total,1); hist['acc'].append(acc)
             if acc > best: best = acc; patience = 0
             else: patience += 1
-            if epoch%10==0 or epoch==1: print(f"  Epoch {epoch:3d} | loss={hist['loss'][-1]:.3f} acc={acc:.3f} | patience={patience}/50")
+            if epoch%10==0 or epoch==1: print(f"  Epoch {epoch:3d} | loss={hist['loss'][-1]:.3f} val_loss={hist['val_loss'][-1]:.3f} acc={acc:.3f} | patience={patience}/50")
             if patience >= 50: print(f"  Early stopping at epoch {epoch}"); break
-        fold_accs.append(best); fold_histories.append({'fold':fold_idx+1,'loss':hist['loss'],'acc':hist['acc']})
+        fold_accs.append(best); fold_histories.append({'fold':fold_idx+1,'loss':hist['loss'],'val_loss':hist['val_loss'],'acc':hist['acc']})
         print(f"  Best: {best:.4f}")
 
     print(f"\n{'='*50}\nK-FOLD (k={K})\n{'='*50}")
@@ -176,7 +181,8 @@ if __name__ == "__main__":
         final_hist['loss'].append(tls/len(graphs))
 
     torch.save(fm.state_dict(), MODEL_DIR/"model.pt")
-    log = {"model":"GAT","k":K,"epochs":EPOCHS, "fold_accuracies":[float(a) for a in fold_accs],
+    log = {"model":"GAT","k":K,"epochs":EPOCHS,"params":n_params,"batch_size":BS,
+           "fold_accuracies":[float(a) for a in fold_accs],
            "mean":float(np.mean(fold_accs)),"std":float(np.std(fold_accs)),
            "fold_histories":fold_histories,"final":final_hist}
     with open(MODEL_DIR/"train_log.json","w") as f: json.dump(log, f, indent=2)

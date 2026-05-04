@@ -1,21 +1,19 @@
 <!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><title>Model</title>
 <link rel="stylesheet" href="/theme.css"><style>
 body { overflow-y: auto; }
-.dashboard { max-width: 1000px; margin: 56px auto 40px; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.dashboard { max-width: 1100px; margin: 56px auto 40px; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
 .row { display: flex; gap: 20px; flex-wrap: wrap; }
 .row > * { flex: 1; min-width: 280px; }
-.bar-wrap { background: var(--bg-tertiary); border-radius: var(--radius-sm); height: 6px; margin: 4px 0 8px; overflow: hidden; }
-.bar-fill { background: var(--accent); height: 100%; border-radius: var(--radius-sm); transition: width 0.3s; }
-.chart-row { display: flex; align-items: flex-end; gap: 4px; height: 120px; padding: 8px 0; }
-.chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.chart-bar { width: 100%; max-width: 60px; background: var(--accent); border-radius: var(--radius-sm) var(--radius-sm) 0 0; min-height: 2px; }
-.chart-val { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
-.chart-label { font-size: 10px; color: var(--text-muted); }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 6px 12px; border-bottom: 1px solid var(--border); }
-td { padding: 6px 12px; color: var(--text-primary); border-bottom: 1px solid var(--bg-tertiary); font-family: var(--font-mono); }
-.tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
-.tag-ok { background: #064e3b; color: #22c55e; }
+.metrics { display: flex; gap: 20px; flex-wrap: wrap; }
+.metric { padding: 12px 20px; background: var(--bg-tertiary); border-radius: var(--radius); text-align: center; min-width: 80px; }
+.metric .val { font-size: 22px; font-weight: 700; color: var(--accent); font-family: var(--font-mono); }
+.metric .label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.chart-container { position: relative; width: 100%; }
+.chart-container svg { width: 100%; }
+.legend { display: flex; gap: 16px; font-size: 11px; color: var(--text-secondary); margin: 4px 0 8px; }
+.legend span { display: flex; align-items: center; gap: 4px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.nodata { color: var(--text-muted); font-size: 14px; padding: 40px; text-align: center; }
 </style></head><body>
 <div id="navbar">
   <a href="/">Compare</a><a href="/labels">Labels</a>
@@ -23,77 +21,147 @@ td { padding: 6px 12px; color: var(--text-primary); border-bottom: 1px solid var
 </div>
 <div class="dashboard" id="root"><div class="nodata">Loading training data...</div></div>
 <script>
-async function loadLog(url) {
-  try { const r = await fetch(url); return r.ok ? await r.json() : null; }
-  catch { return null; }
+const COLORS = ['#06b6d4','#f59e0b','#22c55e','#ef4444','#8b5cf6','#ec4899'];
+const DARK = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary').trim() || '#121212';
+const GRID = getComputedStyle(document.documentElement).getPropertyValue('--bg-tertiary').trim() || '#1e1e1e';
+const TEXT = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#666';
+
+function lineChart(data, opts = {}) {
+  // data: [{label, values, color}] — values are arrays
+  if (!data || !data.length || !data[0].values.length) return '';
+  const W = opts.w || 1000; const H = opts.h || 200;
+  const M = {t:20, r:60, b:40, l:60}; // margins
+  const pw = W - M.l - M.r; const ph = H - M.t - M.b;
+  const n = data[0].values.length;
+
+  let ymin = Infinity, ymax = -Infinity;
+  data.forEach(d => d.values.forEach(v => { if (v < ymin) ymin = v; if (v > ymax) ymax = v; }));
+  const yr = ymax - ymin || 1;
+  ymin -= yr * 0.05; ymax += yr * 0.05;
+  const ysc = v => M.t + ph * (1 - (v - ymin) / (ymax - ymin));
+  const xsc = i => M.l + (pw / Math.max(n-1, 1)) * i;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  // Grid
+  for (let i = 0; i <= 4; i++) {
+    const y = M.t + ph * i / 4;
+    svg += `<line x1="${M.l}" y1="${y}" x2="${W-M.r}" y2="${y}" stroke="${GRID}" stroke-width="0.5"/>`;
+    const val = ymax - (ymax-ymin) * i / 4;
+    svg += `<text x="${M.l-6}" y="${y+4}" fill="${TEXT}" font-size="10" text-anchor="end">${val.toFixed(3)}</text>`;
+  }
+  // X labels
+  for (let i = 0; i < n; i += Math.max(1, Math.floor(n/10))) {
+    const x = xsc(i);
+    svg += `<text x="${x}" y="${H-8}" fill="${TEXT}" font-size="9" text-anchor="middle">${i+1}</text>`;
+  }
+  // Lines
+  data.forEach((d, di) => {
+    const color = d.color || COLORS[di % COLORS.length];
+    let path = '';
+    d.values.forEach((v, i) => {
+      path += (i === 0 ? 'M' : 'L') + `${xsc(i).toFixed(1)},${ysc(v).toFixed(1)} `;
+    });
+    svg += `<path d="${path}" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.9"/>`;
+    // Dots (sparse)
+    const step = Math.max(1, Math.floor(n / 20));
+    d.values.forEach((v, i) => {
+      if (i % step === 0 || i === n-1) {
+        svg += `<circle cx="${xsc(i).toFixed(1)}" cy="${ysc(v).toFixed(1)}" r="2" fill="${color}"/>`;
+      }
+    });
+  });
+  svg += '</svg>';
+  return svg;
 }
-function barChart(accs, mean) {
-  const max = Math.max(...accs, 0.5);
-  return '<div class="chart-row">' + accs.map((a,i) => {
-    const h = Math.max(4, (a/max)*110);
-    return `<div class="chart-col"><div class="chart-val">${(a*100).toFixed(1)}%</div><div class="chart-bar" style="height:${h}px"></div><div class="chart-label">F${i+1}</div></div>`;
-  }).join('') + '</div>';
-}
+
 function render(log) {
   if (!log) return '<div class="nodata">No training data yet. Run train.py.</div>';
+
   const accs = log.fold_accuracies || [];
-  const mean = log.mean || 0; const std = log.std || 0; const k = log.k || 0;
+  const mean = log.mean || 0; const std = log.std || 0;
+  const folds = log.fold_histories || [];
+
   let h = '<div class="card"><h2>'+log.model+'</h2>';
+  // Metrics row
   h += '<div class="metrics">';
   h += `<div class="metric"><div class="val">${(mean*100).toFixed(2)}%</div><div class="label">Mean Acc</div></div>`;
   h += `<div class="metric"><div class="val">${(std*100).toFixed(2)}%</div><div class="label">Std</div></div>`;
-  h += `<div class="metric"><div class="val">${k}</div><div class="label">Folds</div></div>`;
+  h += `<div class="metric"><div class="val">${log.k||'?'}</div><div class="label">Folds</div></div>`;
   h += `<div class="metric"><div class="val">${log.epochs||'?'}</div><div class="label">Epochs</div></div>`;
+  h += `<div class="metric"><div class="val">${log.params||'?'}</div><div class="label">Params</div></div>`;
+  if (log.batch_size) h += `<div class="metric"><div class="val">${log.batch_size}</div><div class="label">Batch</div></div>`;
   h += '</div>';
-  if (accs.length > 1) h += barChart(accs, mean);
-  // Final training loss curve (simple)
-  if (log.final && log.final.loss) {
-    h += '<div style="margin-top:12px"><strong style="font-size:12px;color:var(--text-muted)">Final Training Loss</strong>';
-    const losses = log.final.loss;
-    const lmax = Math.max(...losses);
-    h += '<div class="bar-wrap" style="height:3px;margin-top:6px">';
-    losses.forEach((l,i) => {
-      h += `<span style="display:inline-block;width:${100/losses.length}%;height:3px;background:var(--accent);opacity:${0.3+l/lmax*0.7};float:left" title="Epoch ${i+1}: ${l.toFixed(3)}"></span>`;
+
+  // Fold accuracy bars
+  if (accs.length > 1) {
+    const maxA = Math.max(...accs, 0.5);
+    h += '<div style="margin-top:12px"><div style="font-size:12px;color:'+TEXT+';margin-bottom:4px">Fold Accuracies</div>';
+    h += '<div style="display:flex;align-items:flex-end;gap:8px;height:80px;padding:4px 0">';
+    accs.forEach((a,i) => {
+      h += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+        <div style="font-size:11px;color:'+TEXT+';font-family:var(--font-mono)">${(a*100).toFixed(1)}%</div>
+        <div style="width:100%;max-width:50px;background:${COLORS[i]};border-radius:2px 2px 0 0;height:${Math.max(4,(a/maxA)*70)}px"></div>
+        <div style="font-size:10px;color:'+TEXT+'">F${i+1}</div></div>`;
     });
-    h += '</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">Loss: '+losses[0].toFixed(2)+' -> '+losses[losses.length-1].toFixed(2)+'</div></div>';
+    h += '</div></div>';
   }
-  // Fold history charts
-  const folds = log.fold_histories || [];
+
+  // Per-fold loss & accuracy line charts
   if (folds.length > 0) {
     h += '<div style="margin-top:16px">';
-    folds.forEach(f => {
-      h += `<div class="card" style="margin-bottom:12px;padding:12px"><strong style="font-size:13px;color:var(--accent)">Fold ${f.fold}</strong>`;
+    folds.forEach((f, fi) => {
+      const color = COLORS[fi % COLORS.length];
+      h += `<div class="card" style="margin-bottom:16px;padding:14px"><strong style="font-size:14px;color:${color}">Fold ${f.fold}</strong>`;
       const ba = f.acc && f.acc.length ? Math.max(...f.acc) : 0;
-      h += `<span style="font-size:12px;color:var(--text-muted);margin-left:8px">Best Acc: ${(ba*100).toFixed(2)}%</span>`;
-      // Loss curve
+      h += `<span style="font-size:12px;color:${TEXT};margin-left:8px">Best Acc: ${(ba*100).toFixed(2)}%</span>`;
+
+      const series = [{label: 'Train Loss', values: f.loss || [], color: '#f97316'}];
+      if (f.val_loss && f.val_loss.length) series.push({label: 'Val Loss', values: f.val_loss, color: '#ef4444'});
+      if (f.acc && f.acc.length) series.push({label: 'Val Acc', values: f.acc.map(v=>v*(ymax_for(series)||1)), color: '#06b6d4'});
+
+      // Combined loss chart
       if (f.loss && f.loss.length > 1) {
-        const lmax = Math.max(...f.loss); const lmin = Math.min(...f.loss); const lr = lmax-lmin||1;
-        h += '<div style="margin:8px 0"><span style="font-size:10px;color:var(--text-muted)">Loss</span>';
-        h += '<div class="bar-wrap" style="height:4px;margin-top:2px">';
-        f.loss.forEach((l,i) => {
-          h += `<span style="display:inline-block;width:${100/f.loss.length}%;height:4px;background:#ff8844;opacity:${0.4+(l-lmin)/lr*0.6};float:left" title="E${i+1}: ${l.toFixed(3)}"></span>`;
-        });
-        h += '</div><span style="font-size:9px;color:var(--text-muted)">${f.loss[0].toFixed(2)} -> ${f.loss[f.loss.length-1].toFixed(2)}</span></div>';
+        h += '<div style="margin:8px 0"><div style="font-size:11px;color:'+TEXT+';margin-bottom:2px">Training Curves</div>';
+        // Compute ymax for combined chart
+        const lossMax = Math.max(...f.loss);
+        const lossMin = Math.min(...f.loss);
+        const lossData = [{label: 'Train Loss', values: f.loss, color: '#f97316'}];
+        if (f.val_loss && f.val_loss.length) {
+          lossData.push({label: 'Val Loss', values: f.val_loss, color: '#ef4444'});
+        }
+        h += `<div class="legend">${lossData.map(d=>`<span><span class="legend-dot" style="background:${d.color}"></span>${d.label}</span>`).join('')}</div>`;
+        h += lineChart(lossData, {w: 900, h: 180});
       }
-      // Acc curve
+
+      // Accuracy chart (separate scale)
       if (f.acc && f.acc.length > 1) {
-        const amax = Math.max(...f.acc); const amin = Math.min(...f.acc); const ar = amax-amin||1;
-        h += '<div style="margin:4px 0"><span style="font-size:10px;color:var(--text-muted)">Acc</span>';
-        h += '<div class="bar-wrap" style="height:4px;margin-top:2px">';
-        f.acc.forEach((a,i) => {
-          h += `<span style="display:inline-block;width:${100/f.acc.length}%;height:4px;background:#06b6d4;opacity:${0.4+(a-amin)/ar*0.6};float:left" title="E${i+1}: ${(a*100).toFixed(1)}%"></span>`;
-        });
-        h += '</div><span style="font-size:9px;color:var(--text-muted)">${(f.acc[0]*100).toFixed(0)}% -> ${(f.acc[f.acc.length-1]*100).toFixed(0)}%</span></div>';
+        h += '<div style="margin:4px 0 0"><div style="font-size:11px;color:'+TEXT+';margin-bottom:2px">Validation Accuracy</div>';
+        const accData = [{label: 'Val Acc', values: f.acc, color: '#06b6d4'}];
+        h += lineChart(accData, {w: 900, h: 140});
       }
       h += '</div>';
     });
     h += '</div>';
   }
+
+  // Final model training loss
+  if (log.final && log.final.loss && log.final.loss.length > 1) {
+    h += '<div class="card" style="padding:14px"><strong style="font-size:13px">Final Model (all data)</strong>';
+    h += '<div style="font-size:11px;color:'+TEXT+';margin:4px 0">';
+    const losses = log.final.loss;
+    h += `Loss: ${losses[0].toFixed(3)} → ${losses[losses.length-1].toFixed(3)}`;
+    h += '</div>';
+    h += lineChart([{label: 'Train Loss', values: losses, color: '#f97316'}], {w: 900, h: 140});
+    h += '</div>';
+  }
+
   h += '</div>';
   return h;
 }
+
 (async () => {
-  const log = await loadLog('/api/model_log/gat');
-  document.getElementById('root').innerHTML = render(log);
+  try { const r = await fetch('/api/model_log/gat');
+    document.getElementById('root').innerHTML = render(r.ok ? await r.json() : null);
+  } catch { document.getElementById('root').innerHTML = '<div class="nodata">Failed to load training data.</div>'; }
 })();
 </script></body></html>

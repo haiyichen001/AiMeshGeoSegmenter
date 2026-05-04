@@ -100,7 +100,7 @@ def process_one(label_file):
 
         is_convex = f.get("is_convex", True)
 
-        # --- 1. 圆柱面圆角: Cylinder + 2 neighbors + radius < 10% diagonal + convex ---
+        # --- 1. 圆柱面圆角: Cylinder + 2 neighbors + radius < 10% + convex ---
         if occ == "Cylinder" and n_nbrs == 2 and radius > 0 and radius < diagonal * RADIUS_RATIO and is_convex:
             f["label"] = "fillet"; stats["fillet"] += 1; continue
 
