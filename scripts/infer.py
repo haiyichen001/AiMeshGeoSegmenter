@@ -38,13 +38,13 @@ def segment_mesh(vertices, faces):
     if span < 1e-6:
         span = 1.0
 
-    # Load sklearn edge classifier
-    import pickle
-    ckpt_path = str(P(__file__).parent.parent / "models" / "edge_classifier_sklearn.pkl")
-    with open(ckpt_path, 'rb') as f:
-        bundle = pickle.load(f)
-    edge_model = bundle["model"]
-    scaler = bundle["scaler"]
+    # Load PyTorch edge classifier
+    ckpt_path = str(P(__file__).parent.parent / "models" / "edge_classifier.pt")
+    ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+    edge_model = EdgeMLP(8).eval()
+    edge_model.load_state_dict(ckpt["model"])
+    mean = torch.tensor(ckpt["mean"])
+    std = torch.tensor(ckpt["std"])
 
     # Edge classifier: sklearn SGD on 8-dim features
     edges_keep = []
@@ -80,8 +80,10 @@ def segment_mesh(vertices, faces):
 
         X = np.stack([dihedral, dihedral, area_ratio, edge_len_ratio, np.zeros(len(adjacency)),
                       aspect_tri, max_angle_tri, min_aspect], axis=1)
-        X_s = scaler.transform(X)
-        keep = edge_model.predict(X_s) > 0.5
+        X_t = (torch.tensor(X, dtype=torch.float32) - mean) / std
+        with torch.no_grad():
+            logits = edge_model(X_t)
+            keep = (torch.sigmoid(logits) > 0.5).numpy()
 
         for i in range(len(adjacency)):
             if keep[i]:
@@ -137,10 +139,12 @@ def segment_mesh(vertices, faces):
 
 
 class EdgeMLP(nn.Module):
-    def __init__(self, in_dim=5):
+    def __init__(self, in_dim=8):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(in_dim, 32), nn.ReLU(),
+            nn.Linear(in_dim, 128), nn.ReLU(), nn.Dropout(0.15),
+            nn.Linear(128, 64), nn.ReLU(), nn.Dropout(0.15),
+            nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.1),
             nn.Linear(32, 16), nn.ReLU(),
             nn.Linear(16, 1),
         )

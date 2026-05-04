@@ -113,7 +113,7 @@ def process_one(label_file):
                 face_adj[ib].add(ia)
 
         # Per-face features
-        features = np.zeros((n_faces, 18), dtype=np.float32)
+        features = np.zeros((n_faces, 26), dtype=np.float32)
         edge_list = [[], []]
         labels = np.zeros(n_faces, dtype=np.int64)
 
@@ -182,11 +182,26 @@ def process_one(label_file):
             else:
                 bs = np.array([1., 1., 1.])
 
+            # Curvature features from normal covariance
+            na_mean = na_std = na_max = na_range = 0.0
+            cov_eig1 = cov_eig2 = cov_eig3 = 0.0
+            if n_tris_face >= 2:
+                fn_cov = np.cov(face_normals.T)
+                eigvals = np.linalg.eigvalsh(fn_cov)
+                cov_eig1, cov_eig2, cov_eig3 = float(eigvals[2]), float(eigvals[1]), float(eigvals[0])
+                angles = np.arccos(np.clip(np.dot(face_normals, mean_normal), -1, 1)) * 180 / np.pi
+                na_mean = float(angles.mean())
+                na_std = float(angles.std())
+                na_max = float(angles.max())
+                na_range = float(angles.max() - angles.min())
+
             features[fi] = [
                 area_log, mean_normal[0], mean_normal[1], mean_normal[2],
                 normal_std, rel_center[0], rel_center[1], rel_center[2],
                 n_tris_log, float(n_nbrs), bs[0], bs[1], bs[2],
                 vert_density_log, area_ratio, dih_mean, dih_std, n_verts_log,
+                na_mean, na_std, na_max, na_range,
+                cov_eig1, cov_eig2, cov_eig3, np.log10(max(cov_eig1 + cov_eig2 + cov_eig3, 1e-12)),
             ]
 
             for nb in nbrs:
