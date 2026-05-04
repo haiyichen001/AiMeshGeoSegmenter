@@ -28,6 +28,7 @@ body{background:#0a0a0a;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif}
   <a href="/" style="padding:8px 16px;color:#4db8ff;text-decoration:none;font-size:13px;background:#1a1a1a">Compare</a>
   <a href="/labels" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Labels</a>
   <a href="/infer" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Infer</a>
+  <a href="/model" style="padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px">Model</a>
 </div>
 <div id="sidebar" style="margin-top:35px">
   <h2>Part</h2>
@@ -335,7 +336,7 @@ async function init() {
     groups[g].forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; og.appendChild(o); });
     sel.appendChild(og);
   }
-  const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
+  const def = parts[Math.floor(Math.random()*parts.length)];
   if(def) sel.value = def;
   sel.addEventListener('change', loadAll);
   document.getElementById('btnReload').addEventListener('click', loadAll);

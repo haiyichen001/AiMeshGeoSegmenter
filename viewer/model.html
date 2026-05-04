@@ -1,0 +1,93 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><title>Model Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;color:#ccc;font-family:Arial;padding:40px 20px}
+#navbar{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;background:#111;border-bottom:1px solid #333}
+#navbar a{padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px}
+#navbar a.active{color:#4db8ff;background:#1a1a1a}
+h1{color:#fff;margin:20px 0;text-align:center}
+.dashboard{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.card{background:#111;border:1px solid #222;border-radius:8px;padding:16px}
+.card h2{color:#4db8ff;font-size:16px;margin-bottom:10px}
+.metrics{display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap}
+.metric{background:#1a1a1a;padding:10px 14px;border-radius:6px;text-align:center}
+.metric .val{font-size:24px;font-weight:bold;color:#4db8ff}
+.metric .label{font-size:11px;color:#888;margin-top:2px}
+canvas{width:100%;height:200px;display:block}
+.nodata{color:#666;text-align:center;padding:40px;font-size:14px}
+</style></head><body>
+<div id="navbar">
+  <a href="/">Compare</a><a href="/labels">Labels</a><a href="/infer">Infer</a><a href="/model" class="active">Model</a>
+</div>
+<h1>Training Dashboard</h1>
+<div class="dashboard">
+  <div class="card" id="mlp"><h2>MLP - Edge Classifier</h2><div class="nodata">Loading...</div></div>
+  <div class="card" id="gnn"><h2>GNN - Face Classifier</h2><div class="nodata">Loading...</div></div>
+</div>
+<script>
+async function loadLog(url) {
+  try { const r = await fetch(url); return r.ok ? await r.json() : null; }
+  catch {return null;}
+}
+function drawChart(canvas, data, label, color) {
+  if (!data || data.length===0) return;
+  const ctx = canvas.getContext('2d');
+  const w=canvas.width, h=canvas.height, pad=20;
+  ctx.clearRect(0,0,w,h);
+  const max=Math.max(...data), min=Math.min(...data), range=max-min||1;
+  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+  data.forEach((v,i)=>{
+    const x=pad+(w-2*pad)*i/(data.length-1);
+    const y=h-pad-(h-2*pad)*(v-min)/range;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+  ctx.fillStyle='#888';ctx.font='10px Arial';
+  ctx.fillText(label,pad,12);
+}
+function renderCard(el, log) {
+  if (!log) { el.innerHTML='<h2>'+el.querySelector('h2').textContent+'</h2><div class=nodata>No training data yet. Run train_mlp.py or train.py.</div>'; return; }
+  const foldAccs = log.fold_accuracies||[];
+  const mean = log.mean?.toFixed(4)||'?';
+  const std = log.std?.toFixed(4)||'?';
+  let html = el.querySelector('h2').outerHTML;
+  html += '<div class=metrics>';
+  html += `<div class=metric><div class=val>${mean}</div><div class=label>Mean Acc</div></div>`;
+  html += `<div class=metric><div class=val>${std}</div><div class=label>Std</div></div>`;
+  html += `<div class=metric><div class=val>${foldAccs.length}</div><div class=label>Folds</div></div>`;
+  html += '</div>';
+  foldAccs.forEach((a,i)=>{
+    html += `<div class=metric><div class=val>${a.toFixed(4)}</div><div class=label>Fold ${i+1}</div></div>`;
+  });
+  html += '</div>';
+  // Fold history charts
+  const folds = log.fold_histories||[];
+  folds.forEach((fh,i)=>{
+    html += `<div style="margin-top:8px"><strong style="font-size:12px">Fold ${i+1}</strong></div>`;
+    html += '<div style="display:flex;gap:8px">';
+    html += `<div style="flex:1"><canvas id="c_${el.id}_f${i}_loss" width="280" height="180"></canvas></div>`;
+    html += `<div style="flex:1"><canvas id="c_${el.id}_f${i}_acc" width="280" height="180"></canvas></div>`;
+    html += '</div>';
+  });
+  // Final training
+  if (log.final) {
+    html += '<div style="margin-top:8px"><strong style="font-size:12px">Final Model Training</strong></div>';
+    html += `<div><canvas id="c_${el.id}_final" width="560" height="180"></canvas></div>`;
+  }
+  el.innerHTML = html;
+  // Draw after DOM update
+  setTimeout(()=>{
+    folds.forEach((fh,i)=>{
+      drawChart(document.getElementById(`c_${el.id}_f${i}_loss`), fh.loss, 'Loss','#ff8844');
+      drawChart(document.getElementById(`c_${el.id}_f${i}_acc`), fh.acc, 'Val Acc','#4db8ff');
+    });
+    if (log.final) drawChart(document.getElementById(`c_${el.id}_final`), log.final.loss, 'Final Loss','#44cc44');
+  },100);
+}
+(async ()=>{
+  const mlp = await loadLog('/api/model_log/mlp');
+  const gnn = await loadLog('/api/model_log/gnn');
+  renderCard(document.getElementById('mlp'), mlp);
+  renderCard(document.getElementById('gnn'), gnn);
+})();
+</script></body></html>

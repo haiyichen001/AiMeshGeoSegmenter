@@ -25,6 +25,7 @@ body{background:#0a0a0a;overflow:hidden;font-family:Arial}
   <a href="/">Compare</a>
   <a href="/labels" class="active">Labels</a>
   <a href="/infer">Infer</a>
+  <a href="/model">Model</a>
 </div>
 <div id="toolbar">
   <select id="partSelect" style="padding:6px 12px;font-size:13px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px"></select>
@@ -154,7 +155,7 @@ async function init() {
     groups[g].forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; og.appendChild(o); });
     sel.appendChild(og);
   }
-  const def = parts.find(p=>p.includes('HexagonNut'))||parts[0];
+  const def = parts[Math.floor(Math.random()*parts.length)];
   if(def) sel.value = def;
   sel.addEventListener('change',()=>load(sel.value));
   document.getElementById('btnReload').addEventListener('click',()=>load(sel.value));

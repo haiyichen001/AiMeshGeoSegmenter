@@ -1,16 +1,10 @@
 """
-GraphSAGE 面类型分类 — 训练脚本
-
-模型: 3层 GraphSAGE + MLP classifier
-输入: 图数据集 (data/graphs/*.npz)
-输出: 训练好的模型 weights
+GraphSAGE 面分类器 — 26 维输入, k-fold CV, JSON 训练日志
 """
-import os, json, random, time, collections
+import os, json as _json, random, time, collections
 from pathlib import Path
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import torch, torch.nn as nn, torch.nn.functional as F
 from torch_geometric.nn import SAGEConv
 from torch_geometric.data import Data, DataLoader, Batch
 from torch_geometric.utils import add_self_loops
@@ -23,206 +17,143 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 LABEL_NAMES = ["plane", "cylinder", "sphere", "cone", "torus", "fillet", "chamfer", "freeform"]
 NUM_CLASSES = len(LABEL_NAMES)
 DEVICE = torch.device("cpu")
-
-# ---- Hyperparams ----
-HIDDEN_DIM = 128
-NUM_LAYERS = 3
-DROPOUT = 0.3
-BATCH_SIZE = 16
-LR = 0.001
-EPOCHS = 80
-TRAIN_RATIO = 0.8
-VAL_RATIO = 0.1
+HIDDEN_DIM, NUM_LAYERS, DROPOUT = 128, 3, 0.3
+BATCH_SIZE, LR, EPOCHS, K = 16, 0.001, 80, 5
 
 
 class FaceClassifier(nn.Module):
     def __init__(self, in_dim, hidden_dim, num_classes, num_layers=3, dropout=0.3):
         super().__init__()
-        self.convs = nn.ModuleList()
-        self.norms = nn.ModuleList()
-        self.convs.append(SAGEConv(in_dim, hidden_dim))
-        self.norms.append(nn.BatchNorm1d(hidden_dim))
+        self.convs = nn.ModuleList(); self.norms = nn.ModuleList()
+        self.convs.append(SAGEConv(in_dim, hidden_dim)); self.norms.append(nn.BatchNorm1d(hidden_dim))
         for _ in range(num_layers - 1):
-            self.convs.append(SAGEConv(hidden_dim, hidden_dim))
-            self.norms.append(nn.BatchNorm1d(hidden_dim))
+            self.convs.append(SAGEConv(hidden_dim, hidden_dim)); self.norms.append(nn.BatchNorm1d(hidden_dim))
         self.dropout = nn.Dropout(dropout)
-        self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim // 2, num_classes),
-        )
+        self.mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim//2), nn.ReLU(),
+                                 nn.Dropout(dropout), nn.Linear(hidden_dim//2, num_classes))
 
     def forward(self, data):
-        x, edge_index = data.x, data.edge_index
-        edge_index, _ = add_self_loops(edge_index, num_nodes=x.size(0))
+        x, ei = data.x, data.edge_index
+        ei, _ = add_self_loops(ei, num_nodes=x.size(0))
         for conv, norm in zip(self.convs, self.norms):
-            x = conv(x, edge_index)
-            x = norm(x)
-            x = F.relu(x)
-            x = self.dropout(x)
-        x = self.mlp(x)
-        return F.log_softmax(x, dim=-1)
+            x = conv(x, ei); x = norm(x); x = F.relu(x); x = self.dropout(x)
+        return F.log_softmax(self.mlp(x), dim=-1)
 
 
-def load_graph(filepath):
-    d = np.load(filepath)
-    x = torch.tensor(d["x"], dtype=torch.float32)
-    edge_index = torch.tensor(d["edge_index"], dtype=torch.long)
-    y = torch.tensor(d["y"], dtype=torch.long)
-    n = int(d["num_nodes"])
-    return Data(x=x, edge_index=edge_index, y=y, num_nodes=n)
+def load_graph(fp):
+    d = np.load(fp)
+    return Data(x=torch.tensor(d["x"], dtype=torch.float32),
+                edge_index=torch.tensor(d["edge_index"], dtype=torch.long),
+                y=torch.tensor(d["y"], dtype=torch.long), num_nodes=int(d["num_nodes"]))
+
+
+def evaluate(model, loader, class_weights):
+    model.eval(); correct, total, loss_sum = 0, 0, 0.0
+    with torch.no_grad():
+        for batch in loader:
+            batch = batch.to(DEVICE); out = model(batch)
+            loss = F.nll_loss(out, batch.y, weight=class_weights)
+            loss_sum += loss.item() * batch.num_graphs
+            pred = out.argmax(dim=1)
+            correct += (pred == batch.y).sum().item(); total += batch.y.size(0)
+    return correct / max(total, 1), loss_sum / len(loader.dataset)
 
 
 def main():
-    # Load all graphs
     files = sorted(GRAPH_DIR.glob("*.npz"))
-    print(f"Loading {len(files)} graphs...")
-    t0 = time.time()
     graphs = [load_graph(f) for f in files]
-    print(f"Loaded in {time.time()-t0:.1f}s")
+    print(f"Loaded {len(graphs)} graphs")
+    random.seed(42); random.shuffle(graphs)
 
-    # K-fold cross-validation
-    K = 5
-    random.seed(42)
-    random.shuffle(graphs)
     fold_size = len(graphs) // K
     folds = [graphs[i*fold_size:(i+1)*fold_size] for i in range(K)]
-    # Handle remainder
-    for i in range(len(graphs) - K*fold_size):
-        folds[i].append(graphs[K*fold_size + i])
-
-    def rotate_graph(graph):
-        """Random 3D rotation of normal + center features."""
-        # Random rotation matrix (Rodrigues)
-        axis = torch.randn(3); axis = axis / axis.norm()
-        angle = torch.rand(1).item() * 2 * 3.14159
-        Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
-        R = torch.eye(3) + torch.sin(torch.tensor(angle)) * K + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
-        g = graph.clone()
-        g.x[:, 1:4] = g.x[:, 1:4] @ R.T  # normal
-        g.x[:, 5:8] = g.x[:, 5:8] @ R.T  # center
-        return g
+    for i in range(len(graphs) - K*fold_size): folds[i].append(graphs[K*fold_size + i])
 
     in_dim = graphs[0].x.shape[1]
-    fold_accs = []
+    print(f"Input dim: {in_dim}, Device: {DEVICE}")
+    fold_accs = []; fold_histories = []
 
     for fold_idx in range(K):
-        print(f"\n{'='*50}")
-        print(f"FOLD {fold_idx+1}/{K}")
-        print(f"{'='*50}")
-
+        print(f"\n{'='*50}\nFOLD {fold_idx+1}/{K}\n{'='*50}")
         val_graphs = folds[fold_idx]
         train_graphs = [g for i in range(K) if i != fold_idx for g in folds[i]]
         print(f"Train: {len(train_graphs)}, Val: {len(val_graphs)}")
 
         train_loader = DataLoader(train_graphs, batch_size=BATCH_SIZE, shuffle=True)
-        val_loader = DataLoader(val_graphs, batch_size=BATCH_SIZE * 2, shuffle=False)
+        val_loader = DataLoader(val_graphs, batch_size=BATCH_SIZE*2, shuffle=False)
 
-        # Class weights from training set
-        all_labels = []
-        for g in train_graphs:
-            all_labels.extend(g.y.numpy().tolist())
-        label_counts = collections.Counter(all_labels)
-        total = sum(label_counts.values())
+        all_labels = []; _ = [all_labels.extend(g.y.numpy().tolist()) for g in train_graphs]
+        lc = collections.Counter(all_labels); t = sum(lc.values())
         class_weights = torch.zeros(NUM_CLASSES)
-        for i in range(NUM_CLASSES):
-            class_weights[i] = total / max(label_counts.get(i, 1), 1)
+        for i in range(NUM_CLASSES): class_weights[i] = t / max(lc.get(i, 1), 1)
         class_weights = class_weights.to(DEVICE)
 
-        def evaluate(loader):
-            model.eval()
-            correct, total_, loss_sum = 0, 0, 0.0
-            with torch.no_grad():
-                for batch in loader:
-                    batch = batch.to(DEVICE)
-                    out = model(batch)
-                    loss = F.nll_loss(out, batch.y, weight=class_weights)
-                    loss_sum += loss.item() * batch.num_graphs
-                    pred = out.argmax(dim=1)
-                    correct += (pred == batch.y).sum().item()
-                    total_ += batch.y.size(0)
-            return correct / total_, loss_sum / len(loader.dataset)
-
         model = FaceClassifier(in_dim, HIDDEN_DIM, NUM_CLASSES, NUM_LAYERS, DROPOUT).to(DEVICE)
-        optimizer = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
+        opt = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5)
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=EPOCHS)
 
-        best_val_acc = 0
-        for epoch in range(1, EPOCHS + 1):
-            model.train()
+        best_val_acc = 0; history = {'train_loss': [], 'val_acc': []}
+        for epoch in range(1, EPOCHS+1):
+            model.train(); tl, nb = 0, 0
             for batch in train_loader:
                 batch = batch.to(DEVICE)
-                # Rotation augmentation: random 3D rotation of normal+center features
+                # Rotation augmentation
                 axis = torch.randn(3, device=DEVICE); axis = axis / axis.norm()
                 angle = torch.rand(1, device=DEVICE).item() * 2 * 3.14159
                 Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]], device=DEVICE, dtype=torch.float32)
                 R = torch.eye(3, device=DEVICE) + torch.sin(torch.tensor(angle)) * Kmat + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
-                batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T
-                batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
-                optimizer.zero_grad()
-                out = model(batch)
+                batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T; batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
+                opt.zero_grad(); out = model(batch)
                 loss = F.nll_loss(out, batch.y, weight=class_weights)
-                loss.backward()
-                optimizer.step()
-            scheduler.step()
+                loss.backward(); opt.step(); tl += loss.item() * batch.num_graphs; nb += 1
+            sched.step()
+            val_acc, _ = evaluate(model, val_loader, class_weights)
+            history['train_loss'].append(tl / len(train_graphs)); history['val_acc'].append(val_acc)
+            if val_acc > best_val_acc: best_val_acc = val_acc
+            if epoch % 20 == 0 or epoch == 1:
+                print(f"  Epoch {epoch:3d} | train_loss={history['train_loss'][-1]:.3f} val_acc={val_acc:.3f}")
 
-            _, val_acc = evaluate(val_loader)[0], evaluate(val_loader)[0]
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
-            if epoch % 20 == 0:
-                train_acc, _ = evaluate(train_loader)
-                print(f"  Epoch {epoch:3d} | train={train_acc:.3f} val={val_acc:.3f}")
-
-        fold_accs.append(best_val_acc)
+        fold_accs.append(best_val_acc); fold_histories.append({'fold': fold_idx+1, 'loss': history['train_loss'], 'acc': history['val_acc']})
         print(f"  Fold {fold_idx+1} best val acc: {best_val_acc:.4f}")
 
-    print(f"\n{'='*50}")
-    print(f"K-FOLD RESULTS (k={K})")
-    print(f"{'='*50}")
-    print(f"Fold accuracies: {[f'{a:.4f}' for a in fold_accs]}")
-    print(f"Mean: {np.mean(fold_accs):.4f}")
-    print(f"Std:  {np.std(fold_accs):.4f}")
+    print(f"\n{'='*50}\nK-FOLD RESULTS (k={K})\n{'='*50}")
+    print(f"Folds: {[f'{a:.4f}' for a in fold_accs]}")
+    print(f"Mean: {np.mean(fold_accs):.4f}  Std: {np.std(fold_accs):.4f}")
 
-    # Train final model on all data
+    gnn_log = {"model": "GNN Face Classifier", "k": K, "epochs": EPOCHS,
+               "fold_accuracies": [float(a) for a in fold_accs],
+               "mean": float(np.mean(fold_accs)), "std": float(np.std(fold_accs)),
+               "fold_histories": fold_histories}
+
     print(f"\nTraining final model on all {len(graphs)} graphs...")
     all_loader = DataLoader(graphs, batch_size=BATCH_SIZE, shuffle=True)
     final_model = FaceClassifier(in_dim, HIDDEN_DIM, NUM_CLASSES, NUM_LAYERS, DROPOUT).to(DEVICE)
     opt = torch.optim.Adam(final_model.parameters(), lr=LR, weight_decay=1e-5)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=EPOCHS)
-
-    # Class weights for all data
-    all_labels = []
-    for g in graphs:
-        all_labels.extend(g.y.numpy().tolist())
-    lc = collections.Counter(all_labels)
-    t = sum(lc.values())
+    all_labels = []; _ = [all_labels.extend(g.y.numpy().tolist()) for g in graphs]
+    lc = collections.Counter(all_labels); t = sum(lc.values())
     cw = torch.zeros(NUM_CLASSES)
-    for i in range(NUM_CLASSES):
-        cw[i] = t / max(lc.get(i, 1), 1)
+    for i in range(NUM_CLASSES): cw[i] = t / max(lc.get(i, 1), 1)
     cw = cw.to(DEVICE)
-
-    for epoch in range(1, EPOCHS + 1):
-        final_model.train()
+    final_hist = {'loss': []}
+    for epoch in range(1, EPOCHS+1):
+        final_model.train(); tl, nb = 0, 0
         for batch in all_loader:
             batch = batch.to(DEVICE)
             axis = torch.randn(3, device=DEVICE); axis = axis / axis.norm()
             angle = torch.rand(1, device=DEVICE).item() * 2 * 3.14159
             Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]], device=DEVICE, dtype=torch.float32)
-            R = torch.eye(3, device=DEVICE) + torch.sin(torch.tensor(angle)) * K + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
-            batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T
-            batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
-            opt.zero_grad()
-            out = final_model(batch)
-            loss = F.nll_loss(out, batch.y, weight=cw)
-            loss.backward()
-            opt.step()
-        sched.step()
+            R = torch.eye(3, device=DEVICE) + torch.sin(torch.tensor(angle)) * Kmat + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
+            batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T; batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
+            opt.zero_grad(); out = final_model(batch)
+            loss = F.nll_loss(out, batch.y, weight=cw); loss.backward(); opt.step()
+            tl += loss.item() * batch.num_graphs; nb += 1
+        sched.step(); final_hist['loss'].append(tl / len(graphs))
 
-    torch.save(final_model.state_dict(), MODEL_DIR / "face_classifier_v2.pt")
-    model_size = os.path.getsize(MODEL_DIR / "face_classifier_v2.pt")
-    print(f"Final model saved: {model_size/1024:.0f} KB")
-
+    torch.save(final_model.state_dict(), MODEL_DIR / "face_classifier.pt")
+    gnn_log["final"] = final_hist
+    with open(MODEL_DIR / "gnn_train_log.json", "w") as f: _json.dump(gnn_log, f, indent=2)
+    print(f"Final model saved: {os.path.getsize(MODEL_DIR / 'face_classifier.pt')/1024:.0f} KB")
 
 if __name__ == "__main__":
     main()

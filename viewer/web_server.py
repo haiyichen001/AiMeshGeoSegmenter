@@ -14,6 +14,18 @@ LABEL_DIR = DATA / "data" / "labels"
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
+@app.route("/model")
+def model_page():
+    return send_file(str(WEB_ROOT / "model.html"))
+
+@app.route("/api/model_log/<name>")
+def api_model_log(name):
+    path = DATA / "models" / f"{name}_train_log.json"
+    if not path.exists():
+        return jsonify({"error": "not found"}), 404
+    with open(path) as f:
+        return jsonify(json.load(f))
+
 # STEP shape cache
 _shape_cache = {}
 
