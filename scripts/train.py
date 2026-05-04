@@ -18,7 +18,7 @@ LABEL_NAMES = ["plane", "cylinder", "sphere", "cone", "torus", "fillet", "chamfe
 NUM_CLASSES = len(LABEL_NAMES)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 HIDDEN_DIM, NUM_LAYERS, DROPOUT = 128, 3, 0.3
-BATCH_SIZE, LR, EPOCHS, K = 512, 0.001, 80, 5
+BATCH_SIZE, LR, EPOCHS, K = 512, 0.001, 120, 5
 
 
 def auto_tune_batch(model, graphs):
@@ -117,7 +117,7 @@ if DEVICE.type == 'cuda':
         all_labels = []; _ = [all_labels.extend(g.y.numpy().tolist()) for g in train_graphs]
         lc = collections.Counter(all_labels); t = sum(lc.values())
         class_weights = torch.zeros(NUM_CLASSES)
-        for i in range(NUM_CLASSES): class_weights[i] = t / max(lc.get(i, 1), 1)
+        for i in range(NUM_CLASSES): class_weights[i] = (t / max(lc.get(i, 1), 1)) ** 0.5  # sqrt for softer rebalance
         class_weights = class_weights.to(DEVICE)
 
         model = FaceClassifier(in_dim, HIDDEN_DIM, NUM_CLASSES, NUM_LAYERS, DROPOUT).to(DEVICE)
@@ -141,6 +141,9 @@ if DEVICE.type == 'cuda':
                 Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]], device=DEVICE, dtype=torch.float32)
                 R = torch.eye(3, device=DEVICE) + torch.sin(torch.tensor(angle)) * Kmat + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
                 batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T; batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
+                # Feature noise regularization
+                noise = torch.randn_like(batch.x) * 0.01
+                batch.x = batch.x + noise
                 opt.zero_grad(); out = model(batch)
                 loss = F.nll_loss(out, batch.y, weight=class_weights)
                 loss.backward(); opt.step(); tl += loss.item() * batch.num_graphs; nb += 1
@@ -183,6 +186,8 @@ if DEVICE.type == 'cuda':
             Kmat = torch.tensor([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]], device=DEVICE, dtype=torch.float32)
             R = torch.eye(3, device=DEVICE) + torch.sin(torch.tensor(angle)) * Kmat + (1 - torch.cos(torch.tensor(angle))) * (Kmat @ Kmat)
             batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T; batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
+            noise = torch.randn_like(batch.x) * 0.01
+            batch.x = batch.x + noise
             opt.zero_grad(); out = final_model(batch)
             loss = F.nll_loss(out, batch.y, weight=cw); loss.backward(); opt.step()
             tl += loss.item() * batch.num_graphs; nb += 1
@@ -193,5 +198,3 @@ if DEVICE.type == 'cuda':
     with open(MODEL_DIR / "gnn_train_log.json", "w") as f: _json.dump(gnn_log, f, indent=2)
     print(f"Final model saved: {os.path.getsize(MODEL_DIR / 'face_classifier.pt')/1024:.0f} KB")
 
-if __name__ == "__main__":
-    main()
