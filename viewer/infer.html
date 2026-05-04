@@ -26,13 +26,14 @@ body{background:#0a0a0a;overflow:hidden;font-family:Arial}
 <div id="navbar">
   <a href="/">Compare</a>
   <a href="/labels">Labels</a>
-  <a href="/infer" class="active">Infer</a>
   <a href="/model">Model</a>
+  <a href="/infer" class="active">Infer</a>
 </div>
 <div id="toolbar">
-  <input type="file" id="fileInput" accept=".stl">
-  <label for="fileInput" id="fileLabel">Choose STL</label>
-  <button id="btnDemo">Demo Part</button>
+  <select id="partSelect" style="max-width:300px;padding:6px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px;font-size:13px"></select>
+  <button id="btnInfer">Infer</button>
+  <input type="file" id="fileInput" accept=".stl" style="display:none">
+  <label for="fileInput" id="fileLabel" style="padding:6px 12px;font-size:13px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px;cursor:pointer">Upload</label>
 </div>
 <div id="legend"></div>
 <div id="info"></div>
@@ -151,16 +152,46 @@ document.body.addEventListener('drop', e => {
   }
 });
 
-// Demo: pick a random part
-document.getElementById('btnDemo').addEventListener('click', async () => {
+// Load parts list and populate dropdown
+async function initParts() {
   const r = await fetch('/api/parts');
   const parts = await r.json();
-  const nonAbc = parts.filter(p => !p.startsWith('abc_'));
-  const target = nonAbc[Math.floor(Math.random() * nonAbc.length)];
-  const stlResp = await fetch(`/api/stl_raw/${target}`);
+  const sel = document.getElementById('partSelect');
+  const groups = {};
+  parts.forEach(p => {
+    let g = 'ABC';
+    const pfxs = ['HexagonNut','HexHeadBolt','SocketHeadCap','Countersunk','PanHead','SetScrew',
+      'PlainWasher','ChamferedWasher','DeepGroove','CappedDeep','AngularContact',
+      'CylindricalRoller','TaperedRoller','SpurGear','BevelGear','CrossedHelical',
+      'RackGear','RingGear','WormGear'];
+    for (const pf of pfxs) { if (p.includes(pf)) { g = pf; break; } }
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(p);
+  });
+  for (const g of Object.keys(groups).sort()) {
+    const og = document.createElement('optgroup');
+    og.label = g + ' (' + groups[g].length + ')';
+    groups[g].forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; og.appendChild(o); });
+    sel.appendChild(og);
+  }
+  // Auto-infer random part
+  const allParts = parts;
+  const target = allParts[Math.floor(Math.random() * allParts.length)];
+  sel.value = target;
+  const stlResp = await fetch('/api/stl_raw/' + target);
+  const blob = await stlResp.blob();
+  runInference(blob, target + '.stl');
+}
+
+// Infer button
+document.getElementById('btnInfer').addEventListener('click', async () => {
+  const target = document.getElementById('partSelect').value;
+  const stlResp = await fetch('/api/stl_raw/' + target);
   const blob = await stlResp.blob();
   runInference(blob, target + '.stl');
 });
+
+initParts();
 
 function animate() { requestAnimationFrame(animate); ctrl.update(); renderer.render(scene,cam); labelRenderer.render(scene,cam); }
 

@@ -13,6 +13,7 @@ import os, sys, json, time, collections
 from pathlib import Path
 import numpy as np
 import trimesh
+from collections import defaultdict
 from scipy.spatial import KDTree
 from multiprocessing import Pool, cpu_count
 
@@ -223,6 +224,107 @@ def process_one(label_file):
 
     except Exception as e:
         return (stem, {"_err": str(e)[:100]})
+
+
+def compute_features_for_patches(vertices, faces, patch_labels):
+    """Exact same feature computation as process_one, for inference use."""
+    n_patches = patch_labels.max() + 1
+    stl_verts = vertices
+    stl_faces = faces
+
+    mesh = trimesh.Trimesh(vertices=stl_verts, faces=stl_faces, process=False)
+    stl_normals = mesh.face_normals
+    stl_areas = mesh.area_faces
+    total_area = stl_areas.sum()
+    part_center = stl_verts.mean(axis=0)
+    part_span = float(max(stl_verts.max(axis=0) - stl_verts.min(axis=0)))
+    if part_span < 1e-6: part_span = 1.0
+    stl_centers = stl_verts[stl_faces].mean(axis=1)
+
+    stl_adj = mesh.face_adjacency
+
+    face_adj = defaultdict(set)
+    for a, b in stl_adj:
+        fa = patch_labels[a]; fb = patch_labels[b]
+        if fa != fb: face_adj[fa].add(fb); face_adj[fb].add(fa)
+
+    features = np.zeros((n_patches, 26), dtype=np.float32)
+    edge_list = [[], []]
+    labels_dummy = np.zeros(n_patches, dtype=np.int64)
+
+    for pid in range(n_patches):
+        tri_mask = patch_labels == pid
+        tri_indices = np.where(tri_mask)[0]
+        n_tris_face = len(tri_indices)
+        if n_tris_face == 0: continue
+
+        face_area = stl_areas[tri_indices].sum()
+        face_normals = stl_normals[tri_indices]
+        mean_normal = face_normals.mean(axis=0)
+        nr = np.linalg.norm(mean_normal)
+        if nr > 1e-15: mean_normal /= nr
+        normal_std = face_normals.std(axis=0).mean()
+        face_centers = stl_centers[tri_indices].mean(axis=0)
+        rel_center = (face_centers - part_center) / max(part_span, 1e-6)
+
+        face_verts_set = set()
+        for ti in tri_indices: face_verts_set.update(stl_faces[ti])
+        n_verts_face = len(face_verts_set)
+
+        nbrs = sorted(face_adj.get(pid, set())); n_nbrs = len(nbrs)
+
+        dihedral = []
+        for nb in nbrs:
+            nb_mask = patch_labels == nb
+            if nb_mask.sum() > 0:
+                nb_normal = stl_normals[nb_mask].mean(axis=0)
+                nbr_nr = np.linalg.norm(nb_normal)
+                if nbr_nr > 1e-15: nb_normal /= nbr_nr
+                dot = abs(np.dot(mean_normal, nb_normal))
+                dot = min(1.0, max(0.0, dot))
+                dihedral.append(np.arccos(dot)*180/np.pi)
+        dih_mean = np.mean(dihedral) if dihedral else 0.0
+        dih_std = np.std(dihedral) if dihedral else 0.0
+
+        area_log = np.log10(max(face_area, 1e-6))
+        area_ratio = face_area / max(total_area, 1e-6)
+        n_tris_log = np.log10(max(n_tris_face, 1))
+        vert_density_log = np.log10(max(n_verts_face / max(face_area, 1e-6), 1e-6))
+        n_verts_log = np.log10(max(n_verts_face, 1))
+
+        if n_verts_face >= 3:
+            fv = np.array([stl_verts[v] for v in face_verts_set])
+            bs = fv.max(axis=0) - fv.min(axis=0)
+            bs = bs / max(bs.max(), 1e-6)
+        else:
+            bs = np.array([1., 1., 1.])
+
+        na_mean = na_std = na_max = na_range = 0.0
+        cov_eig1 = cov_eig2 = cov_eig3 = 0.0
+        if n_tris_face >= 2:
+            fn_cov = np.cov(face_normals.T)
+            eigvals = np.linalg.eigvalsh(fn_cov)
+            cov_eig1, cov_eig2, cov_eig3 = float(eigvals[2]), float(eigvals[1]), float(eigvals[0])
+            angles = np.arccos(np.clip(np.dot(face_normals, mean_normal), -1, 1))*180/np.pi
+            na_mean = float(angles.mean())
+            na_std = float(angles.std())
+            na_max = float(angles.max())
+            na_range = float(angles.max()-angles.min())
+
+        features[pid] = [
+            area_log, mean_normal[0], mean_normal[1], mean_normal[2],
+            normal_std, rel_center[0], rel_center[1], rel_center[2],
+            n_tris_log, float(n_nbrs), bs[0], bs[1], bs[2],
+            vert_density_log, area_ratio, dih_mean, dih_std, n_verts_log,
+            na_mean, na_std, na_max, na_range,
+            cov_eig1, cov_eig2, cov_eig3, np.log10(max(cov_eig1+cov_eig2+cov_eig3, 1e-12)),
+        ]
+
+        for nb in nbrs:
+            edge_list[0].append(pid)
+            edge_list[1].append(nb)
+
+    return features, np.array(edge_list, dtype=np.int64)
 
 
 if __name__ == "__main__":

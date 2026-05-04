@@ -270,6 +270,9 @@ def patch_features(vertices, faces, patch_labels):
 
 def predict_stl(stl_path, model_path=None):
     """Full STL inference pipeline. Returns dict ready for frontend."""
+    import sys as _sys
+    import pathlib
+    _sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
     # Load STL
     mesh = trimesh.load(stl_path)
     if isinstance(mesh, trimesh.Scene):
@@ -281,7 +284,11 @@ def predict_stl(stl_path, model_path=None):
     patch_ids = segment_mesh(vertices, faces)
 
     # Features
-    feats, edge_index, patch_faces = patch_features(vertices, faces, patch_ids)
+    from scripts.extract_features_stl import compute_features_for_patches
+    feats, edge_index = compute_features_for_patches(vertices, faces, patch_ids)
+    # Build patch_faces from patch_ids
+    patch_faces = [[] for _ in range(patch_ids.max()+1)]
+    for fi, pid in enumerate(patch_ids): patch_faces[pid].append(fi)
 
     # GNN predict
     class GNN(nn.Module):
@@ -295,21 +302,22 @@ def predict_stl(stl_path, model_path=None):
                 self.convs.append(SAGEConv(hid, hid))
                 self.norms.append(nn.BatchNorm1d(hid))
             self.drop = nn.Dropout(drop)
-            self.mlp = nn.Sequential(
-                nn.Linear(hid, hid // 2), nn.ReLU(), nn.Dropout(drop),
-                nn.Linear(hid // 2, n_cls),
-            )
+            self.res_proj = nn.Linear(in_d, hid) if in_d != hid else nn.Identity()
+            self.mlp = nn.Sequential(nn.Linear(hid, hid//2), nn.ReLU(),
+                                     nn.Dropout(drop), nn.Linear(hid//2, n_cls))
         def forward(self, data):
             x, ei = data.x, data.edge_index
             ei, _ = add_self_loops(ei, num_nodes=x.size(0))
-            for conv, norm in zip(self.convs, self.norms):
-                x = conv(x, ei); x = norm(x); x = F.relu(x); x = self.drop(x)
+            x0 = self.res_proj(x)
+            for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
+                xn = conv(x, ei); xn = norm(xn); xn = F.relu(xn); xn = self.drop(xn)
+                x = xn + (x0 if i < len(self.convs)-1 else xn*0)
             return F.log_softmax(self.mlp(x), dim=-1)
 
     from pathlib import Path as P
     model = GNN(feats.shape[1])
     model_path = model_path or str(P(__file__).parent.parent / "models" / "face_classifier.pt")
-    model.load_state_dict(torch.load(model_path, map_location='cpu', weights_only=False))
+    model.load_state_dict(torch.load(model_path, map_location='cuda', weights_only=False))
     model.eval()
 
     with torch.no_grad():
