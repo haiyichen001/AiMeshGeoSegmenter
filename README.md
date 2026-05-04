@@ -1,23 +1,35 @@
 # AiMeshGeoSegmenter
 
-Two-stage AI pipeline: STL in, 8-class surface type labels out.
+Single-stage GAT model: STL triangles in, 8-class surface labels out.
 
-## Architecture
+## Motivation
+
+Previous two-stage pipeline (MLP edge classifier + GNN face classifier) had an inherent flaw: the MLP was trained on B-Rep face groupings, but at inference time it segments STL triangles into different patch boundaries. This domain mismatch caused feature distribution shift in the GNN, degrading end-to-end accuracy despite both models scoring >94% individually.
+
+## New Architecture
+
+**GAT (Graph Attention Network) directly on STL triangles.**
 
 ```
-STL (triangles)
-  -> [Stage 1] Edge Classifier (MLP, 52KB) — merge or cut adjacent triangles
-  -> Surface patches
-  -> [Stage 2] Face Classifier (GNN, 334KB) — classify each patch into 1 of 8 types
-  -> Labeled patches
+STL file (triangles)
+  |
+  | Each triangle = one graph node (features: normal, area, center)
+  | Triangle adjacency = graph edges (shared edge in the mesh)
+  |
+  v
+GAT (3 layers, ~200K params)
+  |
+  | Attention-weighted message passing on triangle adjacency graph
+  |
+  v
+Per-triangle 8-class label (plane/cylinder/sphere/cone/torus/fillet/chamfer/freeform)
 ```
 
-## Results (5-Fold CV, NVIDIA RTX 5060 Ti, TF32)
-
-| Model | Accuracy | Size | Train Time |
-|-------|----------|------|------------|
-| MLP (Edge) | 94.19% +/- 0.03 | 52 KB | 27s |
-| GNN (Face) | 91.32% +/- 0.35 | 334 KB | ~5 min |
+Why GAT:
+- Works directly on triangle mesh — no point cloud conversion needed
+- Attention mechanism learns which neighbors belong to the same surface
+- Single model, no domain mismatch between training and inference
+- ~200K params, GPU training, CPU inference capable
 
 ## 8 Output Classes
 
@@ -25,40 +37,26 @@ STL (triangles)
 |---|-------|-----------|
 | 1 | Plane | STEP GeomAbs_Plane |
 | 2 | Cylinder | STEP GeomAbs_Cylinder |
-| 3 | Sphere | STEP GeomAbs_Sphere + least-squares recovery from BSpline |
+| 3 | Sphere | STEP GeomAbs_Sphere + least-squares recovery |
 | 4 | Cone | STEP GeomAbs_Cone |
 | 5 | Torus | STEP GeomAbs_Torus |
 | 6 | Fillet | Radius < 5% diagonal + 2 neighbors + area < 15% |
-| 7 | Chamfer | Cone: half-length + 2 neighbors + area. Plane: 15-75deg angle + 2 neighbors + area < 5% |
+| 7 | Chamfer | Half-length + 2 neighbors + area < 15% |
 | 8 | Freeform | Everything else |
 
-## Dataset
-
-- **20,112** STEP/STL pairs (>= 3 faces)
-- **197,218** annotated faces
-- Source: ISO standard parts + ABC single-solid samples
-- STL: multi-density (random deflection 0.05%-2% of diagonal)
-
-## Data Flow (zero domain shift)
-
-Both training and inference operate on STL triangles. No tessellation mismatch.
+## Training Data
 
 ```
-TRAINING                                  INFERENCE
-STEP -> face labels                       STL file
-STL file                                    |
-  |                                         | MLP stage
-  | KD-tree: STL tri -> face                v
-  v                                         Patches
-Group STL tris by face                      |
-  |                                         | GNN stage
-  | 26-dim features (from STL tris)         v
-  v                                         Labels
-Graph NPZ (nodes=faces, edges=adj)
-  |
-  | train.py (GPU, TF32)
-  v
-GNN model
+STEP -> label_faces.py -> per-face labels
+STL file -> per-triangle mesh
+      |
+KD-tree: map each STL triangle to nearest B-Rep face
+      |
+      v
+Per-triangle training data: (normal, area, center, face_label)
+      |
+      v
+GAT training on triangle adjacency graph
 ```
 
 ## Project Structure
@@ -66,24 +64,25 @@ GNN model
 ```
 AiMeshGeoSegmenter/
 ├── data/
-│   ├── step/             20,112 STEP
-│   ├── stl/              20,112 STL
-│   ├── labels/           per-face JSON
-│   ├── graphs/           GNN training NPZ
-│   └── mlp_edges/        MLP training NPZ
+│   ├── step/       20,112 STEP source files
+│   ├── stl/        20,112 STL files
+│   └── labels/     20,112 per-face label JSONs
 ├── scripts/
-│   ├── label_faces.py         STEP -> labels
-│   ├── refine_labels.py       fillet/chamfer/sphere
-│   ├── extract_features_stl.py labels+STL -> 26-dim graphs
-│   ├── train.py               GNN training
-│   ├── train_mlp.py           MLP training
-│   ├── build_mlp_data.py      STL+labels -> edge data
-│   ├── step_to_stl.py         STEP -> multi-density STL
-│   ├── infer.py               full inference pipeline
-│   └── eval_pipeline.py       evaluation
-├── models/               weights + training logs
-└── viewer/               localhost:8006 (Compare/Labels/Infer/Model)
+│   ├── label_faces.py       STEP -> face type labels
+│   ├── refine_labels.py     fillet/chamfer/sphere detection
+│   ├── step_to_stl.py       STEP -> multi-density STL
+│   ├── build_data.py        STL + labels -> training data
+│   ├── train.py             GAT training
+│   └── infer.py             STL -> 8-class labels (inference)
+├── models/                  model weights + training logs
+└── viewer/                  localhost:8006
 ```
+
+## Status
+
+- Dataset: 20,112 STEP/STL pairs, 197K annotated faces
+- Training: in progress
+- GPU: NVIDIA RTX 5060 Ti, 17 GB VRAM
 
 ## License
 
