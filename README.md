@@ -14,7 +14,7 @@ STL (triangles)
 
 | Stage | Model | Params | Size | CV Accuracy |
 |-------|-------|--------|------|-------------|
-| Edge MLP | SGDClassifier (sklearn) | — | 172 MB data | 93.08% +/- 0.07 |
+| Edge MLP | SGDClassifier (sklearn) | — | 14s total | 92.25% +/- 0.23 |
 | Face GNN | GraphSAGE | 80,072 | 325 KB | 94.50% +/- 0.53 |
 
 Both models trained and evaluated on STL-domain data. Zero domain shift.

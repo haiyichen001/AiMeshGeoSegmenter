@@ -10,20 +10,29 @@ from sklearn.metrics import accuracy_score
 import pickle
 
 ROOT = Path(r"D:\AiMeshGeoSegmenter")
-BIG_DIR = ROOT / "data" / "mlp_big"
+MLP_DIR = ROOT / "data" / "mlp_edges"
 MODEL_DIR = ROOT / "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 t0 = time.time()
-X_all = np.load(BIG_DIR / "X.npy").astype(np.float32)
-y_all = np.load(BIG_DIR / "y.npy").astype(np.float32)
-print(f"Loaded {len(X_all)} samples, {X_all.shape[1]} dims, in {time.time()-t0:.1f}s")
-
-# Sub-sample for speed (500K is plenty for this task)
+files = sorted(f for f in os.listdir(MLP_DIR) if f.endswith('.npz'))
+print(f"Loading {len(files)} files into memory...")
+pos, neg = [], []
+for i, fn in enumerate(files):
+    d = np.load(MLP_DIR / fn); X, y = d['X'], d['y']
+    mp, mn = y==1, y==0; n = min(mp.sum(), mn.sum())
+    if n == 0: continue
+    pi = np.random.choice(np.where(mp)[0], min(n, 100), replace=False)
+    ni = np.where(mn)[0]; ni = ni[np.argsort(X[ni,0])[:min(n,100)]]
+    pos.append(X[pi]); neg.append(X[ni])
+    if (i+1) % 4000 == 0: print(f"  {i+1}/{len(files)}")
+X_all = np.vstack(pos+neg).astype(np.float32)
+y_all = np.array([1]*sum(len(p) for p in pos) + [0]*sum(len(n) for n in neg), dtype=np.float32)
+idx = np.random.permutation(len(X_all)); X_all, y_all = X_all[idx], y_all[idx]
+# Cap at 500K
 if len(X_all) > 500000:
-    idx = random.sample(range(len(X_all)), 500000)
-    X_all, y_all = X_all[idx], y_all[idx]
-    print(f"Subsampled to {len(X_all)}")
+    X_all, y_all = X_all[:500000], y_all[:500000]
+print(f"Loaded {len(X_all)} samples, {X_all.shape[1]} dims, in {time.time()-t0:.1f}s")
 
 # Standardize
 scaler = StandardScaler()
