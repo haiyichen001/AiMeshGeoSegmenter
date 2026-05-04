@@ -36,7 +36,7 @@ from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 from OCC.Core.BRepClass3d import BRepClass3d_SolidClassifier
-from OCC.Core.gp import gp_Pnt
+from OCC.Core.gp import gp_Pnt, gp_Vec
 
 # OCCT base type -> our label (initial pass)
 TYPE_MAP = {
@@ -64,6 +64,78 @@ OCCT_NAMES = {
     GeomAbs_SurfaceOfExtrusion: "Extrusion",
     GeomAbs_OtherSurface: "Other",
 }
+
+RADIUS_RATIO = 0.10
+SPHERE_FIT_TOL = 0.02
+
+
+def face_norm_from_verts(verts):
+    """Compute face normal from first 3 vertices."""
+    if len(verts) < 9:
+        return None
+    p0 = np.array(verts[0:3]); p1 = np.array(verts[3:6]); p2 = np.array(verts[6:9])
+    n = np.cross(p1 - p0, p2 - p0)
+    nr = np.linalg.norm(n)
+    return n / nr if nr > 1e-12 else np.array([0, 0, 1])
+
+
+def get_face_direction(f):
+    """Representative direction: axis for curved faces, vertex normal for planar."""
+    axis = f.get("axis")
+    if axis is not None and any(a != 0 for a in axis):
+        return np.array(axis)
+    return face_norm_from_verts(f.get("vertices", []))
+
+
+def angle_between_faces(f1, f2):
+    """Dihedral angle in degrees between faces. Uses axis for curved faces."""
+    d1 = get_face_direction(f1)
+    d2 = get_face_direction(f2)
+    if d1 is None or d2 is None:
+        return None
+
+    has_axis1 = f1.get("axis") is not None and any(a != 0 for a in f1["axis"])
+    has_axis2 = f2.get("axis") is not None and any(a != 0 for a in f2["axis"])
+
+    if has_axis1 and has_axis2:
+        # Both curved: angle between axes
+        dot = min(1.0, max(0.0, abs(np.dot(d1, d2))))
+        return float(np.arccos(dot) * 180 / np.pi)
+
+    if has_axis1 or has_axis2:
+        # One curved + one planar: face angle = |90 - angle(plane_normal, axis)|
+        axis = d1 if has_axis1 else d2
+        plane_n = d2 if has_axis1 else d1
+        cos_a = min(1.0, max(0.0, abs(np.dot(plane_n, axis))))
+        alpha = float(np.arccos(cos_a) * 180 / np.pi)
+        return abs(90.0 - alpha)
+
+    # Both planar: standard normal angle
+    dot = min(1.0, max(0.0, abs(np.dot(d1, d2))))
+    return float(np.arccos(dot) * 180 / np.pi)
+
+
+def try_fit_sphere(verts_list):
+    """Least-squares sphere fit. Returns (ok, center, radius, rel_error)."""
+    if len(verts_list) < 30:
+        return False, None, None, 1.0
+    pts = np.array(verts_list).reshape(-1, 3)
+    if len(pts) > 500:
+        idx = np.random.choice(len(pts), 500, replace=False)
+        pts = pts[idx]
+    A = np.column_stack([2*pts, np.ones(len(pts))])
+    b = (pts**2).sum(axis=1)
+    try:
+        x, residuals, rank, sv = np.linalg.lstsq(A, b, rcond=None)
+        c = x[:3]; r2 = x[3] + np.dot(c, c)
+        if r2 <= 0:
+            return False, None, None, 1.0
+        r = np.sqrt(r2)
+        dists = np.abs(np.linalg.norm(pts - c, axis=1) - r)
+        rel = np.sqrt((dists**2).mean()) / max(r, 1e-6)
+        return True, c.tolist(), float(r), float(rel)
+    except:
+        return False, None, None, 1.0
 
 
 def face_area(face):
@@ -174,13 +246,26 @@ def process_one(step_path):
             # Extract geometric parameters for fillet/chamfer detection
             radius = 0.0
             cone_half_len = 0.0
+            axis_dir = [0.0, 0.0, 0.0]
             if st == GeomAbs_Cylinder:
                 try:
-                    radius = adapt.Cylinder().Radius()
+                    cyl = adapt.Cylinder()
+                    radius = cyl.Radius()
+                    ax = cyl.Position().Axis().Direction()
+                    axis_dir = [ax.X(), ax.Y(), ax.Z()]
                 except: pass
             elif st == GeomAbs_Torus:
                 try:
-                    radius = adapt.Torus().MinorRadius()
+                    tor = adapt.Torus()
+                    radius = tor.MinorRadius()
+                    ax = tor.Position().Axis().Direction()
+                    axis_dir = [ax.X(), ax.Y(), ax.Z()]
+                except: pass
+            elif st == GeomAbs_Cone:
+                try:
+                    cone = adapt.Cone()
+                    ax = cone.Position().Axis().Direction()
+                    axis_dir = [ax.X(), ax.Y(), ax.Z()]
                 except: pass
             # Check if small cylinder is a full circle (hole) vs partial arc (fillet)
             arc_deg = 360.0
@@ -203,19 +288,45 @@ def process_one(step_path):
             label = TYPE_MAP.get(st, "freeform")
             occ_types[occ_type_name] += 1
 
-            # Convexity: offset face center along normal, check if outside solid
+            # Convexity via exact surface normal (D1 at face midpoint)
             is_convex = True
             try:
-                if len(verts) >= 9:
-                    p0 = np.array(verts[0:3]); p1 = np.array(verts[3:6]); p2 = np.array(verts[6:9])
-                    fn = np.cross(p1-p0, p2-p0); nr = np.linalg.norm(fn)
-                    if nr > 1e-12:
-                        fn /= nr
-                        off = span * 0.001
-                        clf = BRepClass3d_SolidClassifier(shape)
-                        clf.Perform(gp_Pnt(cx + fn[0]*off, cy + fn[1]*off, cz + fn[2]*off), 1e-4)
-                        is_convex = (clf.State() != 3)  # 3=TopAbs_IN (inside solid)
-            except: pass
+                u = (adapt.FirstUParameter() + adapt.LastUParameter()) / 2.0
+                v = (adapt.FirstVParameter() + adapt.LastVParameter()) / 2.0
+                pt = gp_Pnt(); d1u = gp_Vec(); d1v = gp_Vec()
+                adapt.D1(u, v, pt, d1u, d1v)
+                surf_n = np.cross(
+                    [d1u.X(), d1u.Y(), d1u.Z()],
+                    [d1v.X(), d1v.Y(), d1v.Z()])
+                nr = np.linalg.norm(surf_n)
+                surf_n = surf_n / nr if nr > 1e-12 else np.array([0, 0, 1])
+
+                if st in (GeomAbs_Cylinder, GeomAbs_Torus):
+                    ax = adapt.Cylinder() if st == GeomAbs_Cylinder else adapt.Torus()
+                    axis = ax.Position().Axis()
+                    o = np.array([axis.Location().X(), axis.Location().Y(), axis.Location().Z()])
+                    d = np.array([axis.Direction().X(), axis.Direction().Y(), axis.Direction().Z()])
+                    fc = np.array([cx, cy, cz])
+                    proj = o + np.dot(fc - o, d) * d
+                    radial = fc - proj
+                    nr_radial = np.linalg.norm(radial)
+                    if nr_radial > 1e-6:
+                        radial = radial / nr_radial
+                        is_convex = bool(np.dot(surf_n, radial) > 0)
+                elif st == GeomAbs_Cone:
+                    apex = adapt.Cone().Apex()
+                    fc = np.array([cx, cy, cz])
+                    to_apex = np.array([apex.X() - cx, apex.Y() - cy, apex.Z() - cz])
+                    da = np.linalg.norm(to_apex)
+                    if da > 1e-6:
+                        is_convex = bool(np.dot(surf_n, to_apex / da) > 0)
+                elif st == GeomAbs_Plane:
+                    fc = np.array([cx, cy, cz]); off = span * 0.001
+                    clf = BRepClass3d_SolidClassifier(shape)
+                    clf.Perform(gp_Pnt(fc[0] + surf_n[0]*off, fc[1] + surf_n[1]*off, fc[2] + surf_n[2]*off), 1e-4)
+                    is_convex = bool(clf.State() != 3)
+            except:
+                pass
 
             faces_data.append({
                 "id": i,
@@ -232,7 +343,54 @@ def process_one(step_path):
                 "cone_half_len": round(cone_half_len, 4),
                 "arc_deg": round(arc_deg, 1),
                 "is_convex": is_convex,
+                "axis": [round(x, 6) for x in axis_dir],
             })
+
+        diagonal = float(np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2))
+
+        # --- Refinement: fillet / chamfer / sphere recovery ---
+        face_by_id = {f["id"]: f for f in faces_data}
+        label_dist = collections.Counter()
+
+        for f in faces_data:
+            occ = f["occ_type"]
+            nbrs = f.get("neighbors", [])
+            nn = len(nbrs)
+            area = f.get("area", 0)
+            radius = f.get("radius", 0)
+            cone_half = f.get("cone_half_len", 0)
+            is_convex = f.get("is_convex", True)
+
+            # Fillet: Cylinder/Torus + 2 neighbors + radius < 10% + convex
+            if occ in ("Cylinder", "Torus") and nn == 2 and radius > 0 and radius < diagonal * RADIUS_RATIO and is_convex:
+                f["label"] = "fillet"; label_dist["fillet"] += 1; continue
+
+            # Chamfer: Cone + 2 neighbors + half-len < 10% + 85-95 deg + convex
+            if occ == "Cone" and nn == 2 and cone_half > 0 and cone_half < diagonal * RADIUS_RATIO and is_convex:
+                nbr_angle = angle_between_faces(face_by_id.get(nbrs[0], {}), face_by_id.get(nbrs[1], {}))
+                if nbr_angle is not None and 85 < nbr_angle < 95:
+                    f["label"] = "chamfer"; label_dist["chamfer"] += 1; continue
+
+            # Chamfer: Plane + 2 neighbors + half-len < 10% + 85-95 deg + convex
+            if occ == "Plane" and nn == 2 and is_convex:
+                plane_half = np.sqrt(max(area, 1e-6)) / 2.0
+                if plane_half < diagonal * RADIUS_RATIO:
+                    nbr_angle = angle_between_faces(face_by_id.get(nbrs[0], {}), face_by_id.get(nbrs[1], {}))
+                    if nbr_angle is not None and 85 < nbr_angle < 95:
+                        f["label"] = "chamfer"; label_dist["chamfer"] += 1; continue
+
+            # Sphere recovery: fit sphere to freeform faces
+            if f["label"] == "freeform" or occ in ("Bezier", "BSpline", "Revolution", "Extrusion", "Other"):
+                verts = f.get("vertices", [])
+                ok_sp, c_sp, r_sp, rel_err = try_fit_sphere(verts)
+                if ok_sp and rel_err < SPHERE_FIT_TOL:
+                    f["label"] = "sphere"; label_dist["sphere"] += 1; continue
+
+            # Default: keep OCCT-derived label
+            if occ in ("Bezier", "BSpline", "Revolution", "Extrusion", "Other"):
+                f["label"] = "freeform"; label_dist["freeform"] += 1
+            else:
+                label_dist[f["label"]] += 1
 
         with open(out_path, 'w') as f:
             json.dump({
@@ -240,8 +398,9 @@ def process_one(step_path):
                 "num_faces": len(faces_data),
                 "center": [(x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2],
                 "span": span,
-                "diagonal": float(np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)),
+                "diagonal": diagonal,
                 "occ_distribution": dict(occ_types),
+                "label_distribution": dict(label_dist),
                 "faces": faces_data,
             }, f)
 

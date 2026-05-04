@@ -26,7 +26,7 @@ from OCC.Core.GeomAbs import (
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
-from OCC.Core.gp import gp_Pnt
+from OCC.Core.gp import gp_Pnt, gp_Vec
 from OCC.Core.BRepClass3d import BRepClass3d_SolidClassifier
 
 LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","fillet","chamfer","freeform"]
@@ -115,11 +115,25 @@ def process_one(step_path):
             nbr_angle = None
             if nn == 2:
                 n1 = list(nbrs)[0]; n2 = list(nbrs)[1]
-                # Get face normals from first 3 vertices of each neighbor
-                def face_norm(fid):
+                def get_dir(fid):
                     loc = TopLoc_Location()
+                    ad = BRepAdaptor_Surface(fm.FindKey(fid), True)
+                    ot = ad.GetType()
+                    # Curved faces: use axis direction
+                    if ot in (GeomAbs_Cylinder, GeomAbs_Torus, GeomAbs_Cone):
+                        try:
+                            if ot == GeomAbs_Cylinder:
+                                ax = ad.Cylinder().Position().Axis().Direction()
+                            elif ot == GeomAbs_Torus:
+                                ax = ad.Torus().Position().Axis().Direction()
+                            else:
+                                ax = ad.Cone().Position().Axis().Direction()
+                            return np.array([ax.X(), ax.Y(), ax.Z()]), True
+                        except: pass
+                    # Flat/other faces: use first 3 vertices
                     tri = BRep_Tool().Triangulation(fm.FindKey(fid), loc)
-                    if tri is None or tri.NbNodes() < 3: return None
+                    if tri is None or tri.NbNodes() < 3:
+                        return None, False
                     trsf = loc.Transformation()
                     p1 = tri.Node(1); p1.Transform(trsf)
                     p2 = tri.Node(2); p2.Transform(trsf)
@@ -127,30 +141,61 @@ def process_one(step_path):
                     n = np.cross(np.array([p2.X()-p1.X(),p2.Y()-p1.Y(),p2.Z()-p1.Z()]),
                                  np.array([p3.X()-p1.X(),p3.Y()-p1.Y(),p3.Z()-p1.Z()]))
                     nr = np.linalg.norm(n)
-                    return n/nr if nr > 1e-12 else np.array([0,0,1])
-                fn1 = face_norm(n1); fn2 = face_norm(n2)
-                if fn1 is not None and fn2 is not None:
-                    dot = min(1.0, max(0.0, abs(np.dot(fn1, fn2))))
-                    nbr_angle = float(np.arccos(dot) * 180 / np.pi)
+                    return (n/nr if nr > 1e-12 else np.array([0,0,1])), False
+                d1, curved1 = get_dir(n1); d2, curved2 = get_dir(n2)
+                if d1 is not None and d2 is not None:
+                    if curved1 and curved2:
+                        dot = min(1.0, max(0.0, abs(np.dot(d1, d2))))
+                        nbr_angle = float(np.arccos(dot) * 180 / np.pi)
+                    elif curved1 or curved2:
+                        axis = d1 if curved1 else d2
+                        plane_n = d2 if curved1 else d1
+                        cos_a = min(1.0, max(0.0, abs(np.dot(plane_n, axis))))
+                        alpha = float(np.arccos(cos_a) * 180 / np.pi)
+                        nbr_angle = abs(90.0 - alpha)
+                    else:
+                        dot = min(1.0, max(0.0, abs(np.dot(d1, d2))))
+                        nbr_angle = float(np.arccos(dot) * 180 / np.pi)
 
-            # Convexity check for fillet/chamfer
+            # Convexity via exact surface normal (D1 at face midpoint)
             is_convex = True
             try:
-                loc = TopLoc_Location(); tri = BRep_Tool().Triangulation(fm.FindKey(i), loc)
-                if tri is not None and tri.NbNodes() >= 3:
-                    trsf = loc.Transformation()
-                    p0 = tri.Node(1); p0.Transform(trsf); p1 = tri.Node(2); p1.Transform(trsf); p2 = tri.Node(3); p2.Transform(trsf)
-                    fn = np.cross(np.array([p1.X()-p0.X(),p1.Y()-p0.Y(),p1.Z()-p0.Z()]),
-                                  np.array([p2.X()-p0.X(),p2.Y()-p0.Y(),p2.Z()-p0.Z()]))
-                    nr = np.linalg.norm(fn)
-                    if nr > 1e-12: fn /= nr
-                    off = diag * 0.001
-                    fc = np.array([(p0.X()+p1.X()+p2.X())/3, (p0.Y()+p1.Y()+p2.Y())/3, (p0.Z()+p1.Z()+p2.Z())/3])
-                    pt = gp_Pnt(fc[0]+fn[0]*off, fc[1]+fn[1]*off, fc[2]+fn[2]*off)
+                u = (adapt.FirstUParameter() + adapt.LastUParameter()) / 2.0
+                v = (adapt.FirstVParameter() + adapt.LastVParameter()) / 2.0
+                pt = gp_Pnt(); d1u = gp_Vec(); d1v = gp_Vec()
+                adapt.D1(u, v, pt, d1u, d1v)
+                surf_n = np.cross(
+                    [d1u.X(), d1u.Y(), d1u.Z()],
+                    [d1v.X(), d1v.Y(), d1v.Z()])
+                nr = np.linalg.norm(surf_n)
+                surf_n = surf_n / nr if nr > 1e-12 else np.array([0, 0, 1])
+
+                if occ in (GeomAbs_Cylinder, GeomAbs_Torus):
+                    ax = adapt.Cylinder() if occ == GeomAbs_Cylinder else adapt.Torus()
+                    axis = ax.Position().Axis()
+                    o = np.array([axis.Location().X(), axis.Location().Y(), axis.Location().Z()])
+                    d_ax = np.array([axis.Direction().X(), axis.Direction().Y(), axis.Direction().Z()])
+                    fp = np.array([pt.X(), pt.Y(), pt.Z()])
+                    proj = o + np.dot(fp - o, d_ax) * d_ax
+                    radial = fp - proj
+                    nr_radial = np.linalg.norm(radial)
+                    if nr_radial > 1e-6:
+                        radial = radial / nr_radial
+                        is_convex = bool(np.dot(surf_n, radial) > 0)
+                elif occ == GeomAbs_Cone:
+                    apex = adapt.Cone().Apex()
+                    fp = np.array([pt.X(), pt.Y(), pt.Z()])
+                    to_apex = np.array([apex.X() - fp[0], apex.Y() - fp[1], apex.Z() - fp[2]])
+                    da = np.linalg.norm(to_apex)
+                    if da > 1e-6:
+                        is_convex = bool(np.dot(surf_n, to_apex / da) > 0)
+                elif occ == GeomAbs_Plane:
+                    fp = np.array([pt.X(), pt.Y(), pt.Z()]); off = diag * 0.001
                     clf = BRepClass3d_SolidClassifier(shape)
-                    clf.Perform(pt, 1e-4)
-                    is_convex = (clf.State() != 3)
-            except: pass
+                    clf.Perform(gp_Pnt(fp[0] + surf_n[0]*off, fp[1] + surf_n[1]*off, fp[2] + surf_n[2]*off), 1e-4)
+                    is_convex = bool(clf.State() != 3)
+            except:
+                pass
 
             # Fillet: Cylinder/Torus + 2 neighbors + radius < 10% + convex
             if occ in (GeomAbs_Cylinder,GeomAbs_Torus) and nn==2:

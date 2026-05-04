@@ -20,7 +20,10 @@ def model_page():
 
 @app.route("/api/model_log/<name>")
 def api_model_log(name):
-    path = DATA / "models" / f"{name}_train_log.json"
+    if name == "gat":
+        path = DATA / "models" / "train_log.json"
+    else:
+        path = DATA / "models" / f"{name}_train_log.json"
     if not path.exists():
         return jsonify({"error": "not found"}), 404
     with open(path) as f:
@@ -48,6 +51,10 @@ COLORS = {
     "cone": "#ff8844", "torus": "#ffcc00", "fillet": "#00cccc",
     "chamfer": "#ff6644", "freeform": "#888888",
 }
+
+@app.route("/theme.css")
+def theme_css():
+    return send_file(str(WEB_ROOT / "theme.css"))
 
 @app.route("/")
 def index():

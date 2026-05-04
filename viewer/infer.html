@@ -3,23 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <title>AI Inference</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0a0a;overflow:hidden;font-family:Arial}
-#navbar{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;gap:0;background:#111;border-bottom:1px solid #333}
-#navbar a{padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px}
-#navbar a.active{color:#4db8ff;background:#1a1a1a}
-#toolbar{position:fixed;top:35px;right:8px;z-index:100;display:flex;gap:8px;align-items:center}
-#toolbar input[type=file]{display:none}
-#toolbar label,#toolbar button{padding:6px 12px;font-size:13px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px;cursor:pointer}
-#toolbar label:hover,#toolbar button:hover{background:#2a2a2a;color:#fff}
-#legend{position:fixed;top:35px;left:8px;color:#ccc;font-size:12px;z-index:100;display:flex;flex-direction:column;gap:3px;background:rgba(0,0,0,0.7);padding:8px;border-radius:4px}
-#legend .item{display:flex;align-items:center;gap:6px}
-#legend .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
-#info{position:fixed;bottom:8px;left:8px;color:#666;font-size:11px;z-index:100}
-#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:16px;z-index:200;display:none}
-#dropzone{position:fixed;top:35%;left:50%;transform:translate(-50%,-50%);color:#888;font-size:18px;text-align:center;z-index:50}
-#dropzone span{color:#4db8ff;cursor:pointer;text-decoration:underline}
+<link rel="stylesheet" href="/theme.css"><style>
+#toolbar { position:fixed; top:36px; right:16px; z-index:100; }
+#legend { position:fixed; top:36px; left:16px; z-index:100; flex-direction:column; background:rgba(0,0,0,0.8); padding:8px 12px; border-radius:6px; }
+#fileInput { display:none; }
 </style>
 </head>
 <body>

@@ -44,7 +44,11 @@ Why GAT:
 |   |        | Torus: 2 neighbors + minor radius < 10% diagonal + convex only |
 | 7 | Chamfer | Cone: 2 neighbors + half-length < 10% + angle 85-95 deg + convex only |
 |   |         | Plane: 2 neighbors + half-length < 10% + angle 85-95 deg + convex only |
+|   |         | Angle: uses axis direction for curved faces (Cylinder/Torus/Cone) instead of vertex normals |
 | 8 | Freeform | Everything else (BSpline, Bezier, Revolution, Extrusion) |
+
+Convexity is detected via `BRepAdaptor_Surface.D1()` exact surface normal at face midpoint.
+All classification (type mapping + fillet/chamfer/sphere refinement) is done in a single pass by `label_faces.py`.
 
 ## Training Data
 
@@ -70,8 +74,7 @@ AiMeshGeoSegmenter/
 │   ├── stl/        20,112 STL files
 │   └── labels/     20,112 per-face label JSONs
 ├── scripts/
-│   ├── label_faces.py       STEP -> face type labels
-│   ├── refine_labels.py     fillet/chamfer/sphere detection
+│   ├── label_faces.py       STEP -> face type labels (includes refinement)
 │   ├── step_to_stl.py       STEP -> multi-density STL
 │   ├── build_data.py        STL + labels -> training data
 │   ├── train.py             GAT training

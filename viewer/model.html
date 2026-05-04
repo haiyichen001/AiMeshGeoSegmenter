@@ -1,93 +1,99 @@
-<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><title>Model Dashboard</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{background:#0a0a0a;color:#ccc;font-family:Arial;padding:40px 20px}
-#navbar{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;background:#111;border-bottom:1px solid #333}
-#navbar a{padding:8px 16px;color:#ccc;text-decoration:none;font-size:13px}
-#navbar a.active{color:#4db8ff;background:#1a1a1a}
-h1{color:#fff;margin:20px 0;text-align:center}
-.dashboard{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:20px}
-.card{background:#111;border:1px solid #222;border-radius:8px;padding:16px}
-.card h2{color:#4db8ff;font-size:16px;margin-bottom:10px}
-.metrics{display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap}
-.metric{background:#1a1a1a;padding:10px 14px;border-radius:6px;text-align:center}
-.metric .val{font-size:24px;font-weight:bold;color:#4db8ff}
-.metric .label{font-size:11px;color:#888;margin-top:2px}
-canvas{width:100%;height:200px;display:block}
-.nodata{color:#666;text-align:center;padding:40px;font-size:14px}
+<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><title>Model</title>
+<link rel="stylesheet" href="/theme.css"><style>
+body { overflow-y: auto; }
+.dashboard { max-width: 1000px; margin: 56px auto 40px; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+.row { display: flex; gap: 20px; flex-wrap: wrap; }
+.row > * { flex: 1; min-width: 280px; }
+.bar-wrap { background: var(--bg-tertiary); border-radius: var(--radius-sm); height: 6px; margin: 4px 0 8px; overflow: hidden; }
+.bar-fill { background: var(--accent); height: 100%; border-radius: var(--radius-sm); transition: width 0.3s; }
+.chart-row { display: flex; align-items: flex-end; gap: 4px; height: 120px; padding: 8px 0; }
+.chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.chart-bar { width: 100%; max-width: 60px; background: var(--accent); border-radius: var(--radius-sm) var(--radius-sm) 0 0; min-height: 2px; }
+.chart-val { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
+.chart-label { font-size: 10px; color: var(--text-muted); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+td { padding: 6px 12px; color: var(--text-primary); border-bottom: 1px solid var(--bg-tertiary); font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.tag-ok { background: #064e3b; color: #22c55e; }
 </style></head><body>
 <div id="navbar">
-  <a href="/">Compare</a><a href="/labels">Labels</a><a href="/infer">Infer</a><a href="/model" class="active">Model</a>
+  <a href="/">Compare</a><a href="/labels">Labels</a>
+  <a href="/model" class="active">Model</a><a href="/infer">Infer</a>
 </div>
-<h1>Training Dashboard</h1>
-<div class="dashboard">
-  <div class="card" id="mlp"><h2>MLP - Edge Classifier</h2><div class="nodata">Loading...</div></div>
-  <div class="card" id="gnn"><h2>GNN - Face Classifier</h2><div class="nodata">Loading...</div></div>
-</div>
+<div class="dashboard" id="root"><div class="nodata">Loading training data...</div></div>
 <script>
 async function loadLog(url) {
   try { const r = await fetch(url); return r.ok ? await r.json() : null; }
-  catch {return null;}
+  catch { return null; }
 }
-function drawChart(canvas, data, label, color) {
-  if (!data || data.length===0) return;
-  const ctx = canvas.getContext('2d');
-  const w=canvas.width, h=canvas.height, pad=20;
-  ctx.clearRect(0,0,w,h);
-  const max=Math.max(...data), min=Math.min(...data), range=max-min||1;
-  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
-  data.forEach((v,i)=>{
-    const x=pad+(w-2*pad)*i/(data.length-1);
-    const y=h-pad-(h-2*pad)*(v-min)/range;
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  });
-  ctx.stroke();
-  ctx.fillStyle='#888';ctx.font='10px Arial';
-  ctx.fillText(label,pad,12);
+function barChart(accs, mean) {
+  const max = Math.max(...accs, 0.5);
+  return '<div class="chart-row">' + accs.map((a,i) => {
+    const h = Math.max(4, (a/max)*110);
+    return `<div class="chart-col"><div class="chart-val">${(a*100).toFixed(1)}%</div><div class="chart-bar" style="height:${h}px"></div><div class="chart-label">F${i+1}</div></div>`;
+  }).join('') + '</div>';
 }
-function renderCard(el, log) {
-  if (!log) { el.innerHTML='<h2>'+el.querySelector('h2').textContent+'</h2><div class=nodata>No training data yet. Run train_mlp.py or train.py.</div>'; return; }
-  const foldAccs = log.fold_accuracies||[];
-  const mean = log.mean?.toFixed(4)||'?';
-  const std = log.std?.toFixed(4)||'?';
-  let html = el.querySelector('h2').outerHTML;
-  html += '<div class=metrics>';
-  html += `<div class=metric><div class=val>${mean}</div><div class=label>Mean Acc</div></div>`;
-  html += `<div class=metric><div class=val>${std}</div><div class=label>Std</div></div>`;
-  html += `<div class=metric><div class=val>${foldAccs.length}</div><div class=label>Folds</div></div>`;
-  html += '</div>';
-  foldAccs.forEach((a,i)=>{
-    html += `<div class=metric><div class=val>${a.toFixed(4)}</div><div class=label>Fold ${i+1}</div></div>`;
-  });
-  html += '</div>';
-  // Fold history charts
-  const folds = log.fold_histories||[];
-  folds.forEach((fh,i)=>{
-    html += `<div style="margin-top:8px"><strong style="font-size:12px">Fold ${i+1}</strong></div>`;
-    html += '<div style="display:flex;gap:8px">';
-    html += `<div style="flex:1"><canvas id="c_${el.id}_f${i}_loss" width="280" height="180"></canvas></div>`;
-    html += `<div style="flex:1"><canvas id="c_${el.id}_f${i}_acc" width="280" height="180"></canvas></div>`;
-    html += '</div>';
-  });
-  // Final training
-  if (log.final) {
-    html += '<div style="margin-top:8px"><strong style="font-size:12px">Final Model Training</strong></div>';
-    html += `<div><canvas id="c_${el.id}_final" width="560" height="180"></canvas></div>`;
-  }
-  el.innerHTML = html;
-  // Draw after DOM update
-  setTimeout(()=>{
-    folds.forEach((fh,i)=>{
-      drawChart(document.getElementById(`c_${el.id}_f${i}_loss`), fh.loss, 'Loss','#ff8844');
-      drawChart(document.getElementById(`c_${el.id}_f${i}_acc`), fh.acc, 'Val Acc','#4db8ff');
+function render(log) {
+  if (!log) return '<div class="nodata">No training data yet. Run train.py.</div>';
+  const accs = log.fold_accuracies || [];
+  const mean = log.mean || 0; const std = log.std || 0; const k = log.k || 0;
+  let h = '<div class="card"><h2>'+log.model+'</h2>';
+  h += '<div class="metrics">';
+  h += `<div class="metric"><div class="val">${(mean*100).toFixed(2)}%</div><div class="label">Mean Acc</div></div>`;
+  h += `<div class="metric"><div class="val">${(std*100).toFixed(2)}%</div><div class="label">Std</div></div>`;
+  h += `<div class="metric"><div class="val">${k}</div><div class="label">Folds</div></div>`;
+  h += `<div class="metric"><div class="val">${log.epochs||'?'}</div><div class="label">Epochs</div></div>`;
+  h += '</div>';
+  if (accs.length > 1) h += barChart(accs, mean);
+  // Final training loss curve (simple)
+  if (log.final && log.final.loss) {
+    h += '<div style="margin-top:12px"><strong style="font-size:12px;color:var(--text-muted)">Final Training Loss</strong>';
+    const losses = log.final.loss;
+    const lmax = Math.max(...losses);
+    h += '<div class="bar-wrap" style="height:3px;margin-top:6px">';
+    losses.forEach((l,i) => {
+      h += `<span style="display:inline-block;width:${100/losses.length}%;height:3px;background:var(--accent);opacity:${0.3+l/lmax*0.7};float:left" title="Epoch ${i+1}: ${l.toFixed(3)}"></span>`;
     });
-    if (log.final) drawChart(document.getElementById(`c_${el.id}_final`), log.final.loss, 'Final Loss','#44cc44');
-  },100);
+    h += '</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">Loss: '+losses[0].toFixed(2)+' -> '+losses[losses.length-1].toFixed(2)+'</div></div>';
+  }
+  // Fold history charts
+  const folds = log.fold_histories || [];
+  if (folds.length > 0) {
+    h += '<div style="margin-top:16px">';
+    folds.forEach(f => {
+      h += `<div class="card" style="margin-bottom:12px;padding:12px"><strong style="font-size:13px;color:var(--accent)">Fold ${f.fold}</strong>`;
+      const ba = f.acc && f.acc.length ? Math.max(...f.acc) : 0;
+      h += `<span style="font-size:12px;color:var(--text-muted);margin-left:8px">Best Acc: ${(ba*100).toFixed(2)}%</span>`;
+      // Loss curve
+      if (f.loss && f.loss.length > 1) {
+        const lmax = Math.max(...f.loss); const lmin = Math.min(...f.loss); const lr = lmax-lmin||1;
+        h += '<div style="margin:8px 0"><span style="font-size:10px;color:var(--text-muted)">Loss</span>';
+        h += '<div class="bar-wrap" style="height:4px;margin-top:2px">';
+        f.loss.forEach((l,i) => {
+          h += `<span style="display:inline-block;width:${100/f.loss.length}%;height:4px;background:#ff8844;opacity:${0.4+(l-lmin)/lr*0.6};float:left" title="E${i+1}: ${l.toFixed(3)}"></span>`;
+        });
+        h += '</div><span style="font-size:9px;color:var(--text-muted)">${f.loss[0].toFixed(2)} -> ${f.loss[f.loss.length-1].toFixed(2)}</span></div>';
+      }
+      // Acc curve
+      if (f.acc && f.acc.length > 1) {
+        const amax = Math.max(...f.acc); const amin = Math.min(...f.acc); const ar = amax-amin||1;
+        h += '<div style="margin:4px 0"><span style="font-size:10px;color:var(--text-muted)">Acc</span>';
+        h += '<div class="bar-wrap" style="height:4px;margin-top:2px">';
+        f.acc.forEach((a,i) => {
+          h += `<span style="display:inline-block;width:${100/f.acc.length}%;height:4px;background:#06b6d4;opacity:${0.4+(a-amin)/ar*0.6};float:left" title="E${i+1}: ${(a*100).toFixed(1)}%"></span>`;
+        });
+        h += '</div><span style="font-size:9px;color:var(--text-muted)">${(f.acc[0]*100).toFixed(0)}% -> ${(f.acc[f.acc.length-1]*100).toFixed(0)}%</span></div>';
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
 }
-(async ()=>{
-  const mlp = await loadLog('/api/model_log/mlp');
-  const gnn = await loadLog('/api/model_log/gnn');
-  renderCard(document.getElementById('mlp'), mlp);
-  renderCard(document.getElementById('gnn'), gnn);
+(async () => {
+  const log = await loadLog('/api/model_log/gat');
+  document.getElementById('root').innerHTML = render(log);
 })();
 </script></body></html>
