@@ -12,8 +12,7 @@ from multiprocessing import Pool, cpu_count
 ROOT = Path(r"D:\AiMeshGeoSegmenter")
 LABEL_DIR = ROOT / "data" / "labels"
 
-AREA_RATIO_THRESH = 0.15       # fillet + cone chamfer
-PLANE_CHAMFER_RATIO = 0.05     # planar chamfer (stricter)
+RADIUS_RATIO = 0.10  # radius / diagonal < 10% -> fillet/chamfer candidate
 SPHERE_FIT_TOL = 0.02          # relative RMS error for sphere fitting
 
 
@@ -59,6 +58,24 @@ def try_fit_sphere(verts_list):
         return False, None, None, 1.0
 
 
+def angle_between_neighbors(nbrs, face_by_id):
+    """计算两个邻居面之间的夹角"""
+    if len(nbrs) < 2: return None
+    n1 = face_by_id.get(nbrs[0])
+    n2 = face_by_id.get(nbrs[1])
+    if n1 is None or n2 is None: return None
+    verts1 = n1.get("vertices", []); verts2 = n2.get("vertices", [])
+    if len(verts1) < 9 or len(verts2) < 9: return None
+    p0 = np.array(verts1[0:3]); p1 = np.array(verts1[3:6]); p2 = np.array(verts1[6:9])
+    nn1 = np.cross(p1-p0, p2-p0); nr1 = np.linalg.norm(nn1)
+    nn1 = nn1/nr1 if nr1>1e-12 else np.array([0,0,1])
+    p0 = np.array(verts2[0:3]); p1 = np.array(verts2[3:6]); p2 = np.array(verts2[6:9])
+    nn2 = np.cross(p1-p0, p2-p0); nr2 = np.linalg.norm(nn2)
+    nn2 = nn2/nr2 if nr2>1e-12 else np.array([0,0,1])
+    dot = min(1.0, max(0.0, abs(np.dot(nn1, nn2))))
+    return float(np.arccos(dot) * 180 / np.pi)
+
+
 def process_one(label_file):
     path = os.path.join(LABEL_DIR, label_file)
     with open(path) as f:
@@ -81,31 +98,30 @@ def process_one(label_file):
         radius = f.get("radius", 0)
         cone_half = f.get("cone_half_len", 0)
 
-        # --- Fillet: radius small AND area small (hard gate) ---
-        if occ in ("Cylinder", "Torus") and n_nbrs == 2 and area_ratio < AREA_RATIO_THRESH:
-            r_score = 1.0 if radius > 0 and radius < diagonal * 0.05 else 0.0
-            n_score = 1.0
-            score = 0.6 * r_score + 0.4 * n_score
-            if score > 0.5:
-                f["label"] = "fillet"; stats["fillet"] += 1; continue
+        is_convex = f.get("is_convex", True)
 
-        # --- Chamfer (Cone): length small AND area small (hard gate) ---
-        if occ == "Cone" and n_nbrs == 2 and area_ratio < AREA_RATIO_THRESH:
-            l_score = 1.0 if cone_half > 0 and cone_half < diagonal * 0.05 else 0.0
-            n_score = 1.0
-            score = 0.6 * l_score + 0.4 * n_score
-            if score > 0.5:
+        # --- 1. 圆柱面圆角: Cylinder + 2 neighbors + radius < 10% diagonal + convex ---
+        if occ == "Cylinder" and n_nbrs == 2 and radius > 0 and radius < diagonal * RADIUS_RATIO and is_convex:
+            f["label"] = "fillet"; stats["fillet"] += 1; continue
+
+        # --- 2. 环面圆角: Torus + 2 neighbors + minor radius < 10% diagonal + convex ---
+        if occ == "Torus" and n_nbrs == 2 and radius > 0 and radius < diagonal * RADIUS_RATIO and is_convex:
+            f["label"] = "fillet"; stats["fillet"] += 1; continue
+
+        # --- 3. 锥面倒角: Cone + 2 neighbors + half-length<10% + angle 85-95 + convex ---
+        if occ == "Cone" and n_nbrs == 2 and cone_half > 0 and cone_half < diagonal * RADIUS_RATIO and is_convex:
+            nbr_angle = angle_between_neighbors(nbrs, face_by_id)
+            if nbr_angle is not None and 85 < nbr_angle < 95:
                 f["label"] = "chamfer"; stats["chamfer"] += 1; continue
 
-        # --- Chamfer (Plane): bevel angles AND area small (hard gate) ---
-        if occ == "Plane" and n_nbrs == 2 and area_ratio < PLANE_CHAMFER_RATIO:
-            angles = [faces_angle(f, face_by_id.get(n, {})) for n in nbrs]
-            good = [a for a in angles if 15 < a < 75]
-            ang_score = len(good) / 2.0
-            n_score = 1.0
-            score = 0.6 * ang_score + 0.4 * n_score
-            if score > 0.5:
-                f["label"] = "chamfer"; stats["chamfer"] += 1; continue
+        # --- 4. 平面倒角: Plane + 2 neighbors + half-length < 10% + angle 85-95 + convex ---
+        if occ == "Plane" and n_nbrs == 2 and is_convex:
+            # Approximate half-length: sqrt(face_area) / 2
+            plane_half = np.sqrt(max(area, 1e-6)) / 2.0
+            if plane_half < diagonal * RADIUS_RATIO:
+                nbr_angle = angle_between_neighbors(nbrs, face_by_id)
+                if nbr_angle is not None and 85 < nbr_angle < 95:
+                    f["label"] = "chamfer"; stats["chamfer"] += 1; continue
 
         # --- Sphere recovery: fit sphere to freeform faces ---
         if f["label"] == "freeform" or occ in ("Bezier", "BSpline", "Revolution", "Extrusion", "Other"):

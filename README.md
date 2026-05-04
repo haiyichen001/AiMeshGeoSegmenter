@@ -35,14 +35,16 @@ Why GAT:
 
 | # | Class | Detection |
 |---|-------|-----------|
-| 1 | Plane | STEP GeomAbs_Plane |
-| 2 | Cylinder | STEP GeomAbs_Cylinder |
-| 3 | Sphere | STEP GeomAbs_Sphere + least-squares recovery |
-| 4 | Cone | STEP GeomAbs_Cone |
-| 5 | Torus | STEP GeomAbs_Torus |
-| 6 | Fillet | Radius < 5% diagonal + 2 neighbors + area < 15% |
-| 7 | Chamfer | Half-length + 2 neighbors + area < 15% |
-| 8 | Freeform | Everything else |
+| 1 | Plane | GeomAbs_Plane, not chamfer |
+| 2 | Cylinder | GeomAbs_Cylinder, not fillet |
+| 3 | Sphere | GeomAbs_Sphere + BSpline least-squares recovery (error < 2%) |
+| 4 | Cone | GeomAbs_Cone, not chamfer |
+| 5 | Torus | GeomAbs_Torus, not fillet |
+| 6 | Fillet | Cylinder: 2 neighbors + radius < 10% diagonal + convex only |
+|   |        | Torus: 2 neighbors + minor radius < 10% diagonal + convex only |
+| 7 | Chamfer | Cone: 2 neighbors + half-length < 10% + angle 85-95 deg + convex only |
+|   |         | Plane: 2 neighbors + half-length < 10% + angle 85-95 deg + convex only |
+| 8 | Freeform | Everything else (BSpline, Bezier, Revolution, Extrusion) |
 
 ## Training Data
 

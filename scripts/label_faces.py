@@ -35,6 +35,8 @@ from OCC.Core.GeomAbs import (
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.TopTools import TopTools_IndexedMapOfShape
+from OCC.Core.BRepClass3d import BRepClass3d_SolidClassifier
+from OCC.Core.gp import gp_Pnt
 
 # OCCT base type -> our label (initial pass)
 TYPE_MAP = {
@@ -180,6 +182,14 @@ def process_one(step_path):
                 try:
                     radius = adapt.Torus().MinorRadius()
                 except: pass
+            # Check if small cylinder is a full circle (hole) vs partial arc (fillet)
+            arc_deg = 360.0
+            if st in (GeomAbs_Cylinder, GeomAbs_Torus):
+                try:
+                    u1 = adapt.FirstUParameter(); u2 = adapt.LastUParameter()
+                    arc_deg = abs(u2 - u1) * 180 / np.pi
+                except: pass
+
             elif st == GeomAbs_Cone:
                 try:
                     cone = adapt.Cone()
@@ -192,6 +202,20 @@ def process_one(step_path):
             occ_type_name = OCCT_NAMES.get(st, "Other")
             label = TYPE_MAP.get(st, "freeform")
             occ_types[occ_type_name] += 1
+
+            # Convexity: offset face center along normal, check if outside solid
+            is_convex = True
+            try:
+                if len(verts) >= 9:
+                    p0 = np.array(verts[0:3]); p1 = np.array(verts[3:6]); p2 = np.array(verts[6:9])
+                    fn = np.cross(p1-p0, p2-p0); nr = np.linalg.norm(fn)
+                    if nr > 1e-12:
+                        fn /= nr
+                        off = span * 0.001
+                        clf = BRepClass3d_SolidClassifier(shape)
+                        clf.Perform(gp_Pnt(cx + fn[0]*off, cy + fn[1]*off, cz + fn[2]*off), 1e-4)
+                        is_convex = (clf.State() != 3)  # 3=TopAbs_IN (inside solid)
+            except: pass
 
             faces_data.append({
                 "id": i,
@@ -206,6 +230,8 @@ def process_one(step_path):
                 "total_edges": len(face_neighbors.get(i, [])),
                 "radius": round(radius, 4),
                 "cone_half_len": round(cone_half_len, 4),
+                "arc_deg": round(arc_deg, 1),
+                "is_convex": is_convex,
             })
 
         with open(out_path, 'w') as f:
