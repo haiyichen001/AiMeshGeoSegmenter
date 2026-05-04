@@ -127,7 +127,6 @@ print(f"Mean: {np.mean(fold_accs):.4f}  Std: {np.std(fold_accs):.4f}")
 mean_all, std_all = X_all.mean(axis=0), X_all.std(axis=0).clip(1e-6)
 Xa = (X_all - mean_all) / std_all
 fm = M(Xa.shape[1]).to(DEVICE)
-fm = torch.compile(fm, dynamic=True)
 opt = torch.optim.Adam(fm.parameters(), lr=0.001, weight_decay=1e-5)
 Xat = torch.tensor(Xa, device=DEVICE); yat = torch.tensor(y_all, device=DEVICE)
 final_hist = {'loss': []}
