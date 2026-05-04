@@ -55,14 +55,24 @@ class FaceClassifier(nn.Module):
         for _ in range(num_layers - 1):
             self.convs.append(SAGEConv(hidden_dim, hidden_dim)); self.norms.append(nn.BatchNorm1d(hidden_dim))
         self.dropout = nn.Dropout(dropout)
+        self.res_proj = nn.Linear(in_dim, hidden_dim) if in_dim != hidden_dim else nn.Identity()
         self.mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim//2), nn.ReLU(),
                                  nn.Dropout(dropout), nn.Linear(hidden_dim//2, num_classes))
 
-    def forward(self, data):
+    def forward(self, data, drop_edge=0.0):
         x, ei = data.x, data.edge_index
         ei, _ = add_self_loops(ei, num_nodes=x.size(0))
-        for conv, norm in zip(self.convs, self.norms):
-            x = conv(x, ei); x = norm(x); x = F.relu(x); x = self.dropout(x)
+        # DropEdge: randomly drop edges during training
+        if drop_edge > 0 and self.training:
+            mask = torch.rand(ei.size(1), device=ei.device) > drop_edge
+            ei = ei[:, mask]
+        x0 = self.res_proj(x)
+        for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
+            x_new = conv(x, ei); x_new = norm(x_new); x_new = F.relu(x_new); x_new = self.dropout(x_new)
+            if i < len(self.convs) - 1:
+                x = x_new + (x0 if x.shape == x_new.shape else x_new * 0)
+            else:
+                x = x_new
         return F.log_softmax(self.mlp(x), dim=-1)
 
 
@@ -144,8 +154,8 @@ if DEVICE.type == 'cuda':
                 # Feature noise regularization
                 noise = torch.randn_like(batch.x) * 0.01
                 batch.x = batch.x + noise
-                opt.zero_grad(); out = model(batch)
-                loss = F.nll_loss(out, batch.y, weight=class_weights)
+                opt.zero_grad(); out = model(batch, drop_edge=0.2)
+                loss = F.cross_entropy(out, batch.y, weight=class_weights, label_smoothing=0.1)
                 loss.backward(); opt.step(); tl += loss.item() * batch.num_graphs; nb += 1
             sched.step()
             val_acc, _ = evaluate(model, val_loader, class_weights)
@@ -188,8 +198,8 @@ if DEVICE.type == 'cuda':
             batch.x[:, 1:4] = batch.x[:, 1:4] @ R.T; batch.x[:, 5:8] = batch.x[:, 5:8] @ R.T
             noise = torch.randn_like(batch.x) * 0.01
             batch.x = batch.x + noise
-            opt.zero_grad(); out = final_model(batch)
-            loss = F.nll_loss(out, batch.y, weight=cw); loss.backward(); opt.step()
+            opt.zero_grad(); out = final_model(batch, drop_edge=0.2)
+            loss = F.cross_entropy(out, batch.y, weight=cw, label_smoothing=0.1); loss.backward(); opt.step()
             tl += loss.item() * batch.num_graphs; nb += 1
         sched.step(); final_hist['loss'].append(tl / len(graphs))
 
