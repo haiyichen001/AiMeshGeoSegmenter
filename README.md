@@ -1,127 +1,64 @@
 # AiMeshGeoSegmenter
 
-End-to-end AI pipeline: STL file in, 8-class surface type labels out.
+Two-stage AI pipeline: STL in, 8-class surface type labels out.
 
 ## Architecture
 
 ```
 STL (triangles)
-  -> [Stage 1] Edge Classifier (MLP) — merge or cut adjacent triangles
+  -> [Stage 1] Edge Classifier (MLP, 52KB) — merge or cut adjacent triangles
   -> Surface patches
-  -> [Stage 2] Face Classifier (GNN) — classify each patch into 1 of 8 types
-  -> Labeled STL
+  -> [Stage 2] Face Classifier (GNN, 334KB) — classify each patch into 1 of 8 types
+  -> Labeled patches
 ```
 
-| Stage | Model | Params | Size | CV Accuracy |
-|-------|-------|--------|------|-------------|
-| Edge MLP | SGDClassifier (sklearn) | — | 14s total | 92.25% +/- 0.23 |
-| Face GNN | GraphSAGE | 80,072 | 325 KB | 94.50% +/- 0.53 |
+## Results (5-Fold CV, NVIDIA RTX 5060 Ti, TF32)
 
-Both models trained and evaluated on STL-domain data. Zero domain shift.
+| Model | Accuracy | Size | Train Time |
+|-------|----------|------|------------|
+| MLP (Edge) | 94.19% +/- 0.03 | 52 KB | 27s |
+| GNN (Face) | 91.32% +/- 0.35 | 334 KB | ~5 min |
 
 ## 8 Output Classes
 
-| # | Class | Fitting Strategy |
-|---|-------|-----------------|
-| 1 | Plane | Point-normal equation |
-| 2 | Cylinder | Axis + radius |
-| 3 | Sphere | Center + radius |
-| 4 | Cone | Apex + axis + angle |
-| 5 | Torus | Major + minor radii |
-| 6 | Fillet | Rolling-ball or analytic |
-| 7 | Chamfer | Plane/Cone subset |
-| 8 | Freeform | B-spline |
+| # | Class | Detection |
+|---|-------|-----------|
+| 1 | Plane | STEP GeomAbs_Plane |
+| 2 | Cylinder | STEP GeomAbs_Cylinder |
+| 3 | Sphere | STEP GeomAbs_Sphere + least-squares recovery from BSpline |
+| 4 | Cone | STEP GeomAbs_Cone |
+| 5 | Torus | STEP GeomAbs_Torus |
+| 6 | Fillet | Radius < 5% diagonal + 2 neighbors + area < 15% |
+| 7 | Chamfer | Cone: half-length + 2 neighbors + area. Plane: 15-75deg angle + 2 neighbors + area < 5% |
+| 8 | Freeform | Everything else |
 
-## Label Generation: Detection Methods
+## Dataset
 
-### 6 Base Types — STEP Direct Read
+- **20,112** STEP/STL pairs (>= 3 faces)
+- **197,218** annotated faces
+- Source: ISO standard parts + ABC single-solid samples
+- STL: multi-density (random deflection 0.05%-2% of diagonal)
 
-| Class | Detection |
-|-------|-----------|
-| Plane | `BRepAdaptor_Surface.GetType() == GeomAbs_Plane` |
-| Cylinder | `BRepAdaptor_Surface.GetType() == GeomAbs_Cylinder` |
-| Sphere | `BRepAdaptor_Surface.GetType() == GeomAbs_Sphere` |
-| Cone | `BRepAdaptor_Surface.GetType() == GeomAbs_Cone` |
-| Torus | `BRepAdaptor_Surface.GetType() == GeomAbs_Torus` |
-| Freeform | BSpline, Bezier, Revolution, Extrusion, Other |
+## Data Flow (zero domain shift)
 
-### 2 Refined Types — Weighted Scoring
-
-**Fillet** (applied to Cylinder/Torus faces):
-
-| Signal | Weight | Criterion |
-|--------|--------|-----------|
-| Radius (cylinder radius or torus minor radius) | 0.50 | < 5% of part bounding-box diagonal |
-| Neighbor count | 0.25 | exactly 2 |
-| Area ratio | 0.25 | area / (area + neighbor_area) < 15% |
-
-Score > 0.5 -> fillet. Rationale: a structural cylinder has a large radius proportional to the part; a fillet cylinder has a tiny radius. No edge-continuity check needed.
-
-**Chamfer — Cone faces:**
-
-| Signal | Weight | Criterion |
-|--------|--------|-----------|
-| Axial half-length | 0.50 | < 5% of part diagonal |
-| Neighbor count | 0.25 | exactly 2 |
-| Area ratio | 0.25 | < 15% |
-
-**Chamfer — Plane faces:**
-
-| Signal | Weight | Criterion |
-|--------|--------|-----------|
-| Dihedral angle to neighbors | 0.50 | > 15 degrees |
-| Neighbor count | 0.25 | exactly 2 |
-| Area ratio | 0.25 | < 5% (stricter than cone) |
-
-**Sphere recovery** (applied to Freeform faces that are geometrically spherical):
-
-Least-squares sphere fit on face vertices. If RMS error < 2% of radius => re-label as sphere.
-
-## Training vs Inference — Data Flow
-
-Training and inference both operate on **STL tessellation**. No domain mismatch.
+Both training and inference operate on STL triangles. No tessellation mismatch.
 
 ```
 TRAINING                                  INFERENCE
-=======                                   =========
-STEP B-Rep -> face type labels            STL file
+STEP -> face labels                       STL file
 STL file                                    |
-  |                                         | infer.py MLP stage
-  | KD-tree map: STL triangle -> face       v
-  v                                         Patches (from MLP grouping)
-Group STL triangles by face                  |
-  |                                         | infer.py GNN stage
-  | Extract 18-dim features                 v
-  v                                         Labeled patches
+  |                                         | MLP stage
+  | KD-tree: STL tri -> face                v
+  v                                         Patches
+Group STL tris by face                      |
+  |                                         | GNN stage
+  | 26-dim features (from STL tris)         v
+  v                                         Labels
 Graph NPZ (nodes=faces, edges=adj)
   |
-  | train.py
+  | train.py (GPU, TF32)
   v
-GNN model <------------------------------ GNN model
-```
-
-Both sides see STL triangles. Zero domain shift for both MLP and GNN stages.
-
-## Training Pipeline
-
-```
-STEP files
-  -> step_to_stl.py          multi-density STL generation (random deflection 0.05%-2% of diagonal)
-  -> label_faces.py          STEP B-Rep -> face type labels (JSON)
-  -> refine_labels.py        fillet / chamfer / sphere detection via weighted scoring
-  -> extract_features.py     JSON labels -> 18-dim graph features (NPZ)
-  -> train_mlp.py            MLP edge classifier from STL adjacency, 5-fold CV
-  -> train.py                GraphSAGE face classifier from graph NPZ, 5-fold CV + rotation aug
-```
-
-## Inference
-
-```
-STL file
-  -> infer.py
-       Stage 1: MLP groups triangles into patches
-       Stage 2: GNN labels each patch
-       Output: 8-class labels
+GNN model
 ```
 
 ## Project Structure
@@ -129,40 +66,24 @@ STL file
 ```
 AiMeshGeoSegmenter/
 ├── data/
-│   ├── step/           ~21K STEP files
-│   ├── stl/            ~21K multi-density STL files
-│   ├── labels/         per-face type JSON
-│   ├── graphs/         training-ready NPZ graph files
-│   └── answers/        evaluation ground truth
+│   ├── step/             20,112 STEP
+│   ├── stl/              20,112 STL
+│   ├── labels/           per-face JSON
+│   ├── graphs/           GNN training NPZ
+│   └── mlp_edges/        MLP training NPZ
 ├── scripts/
 │   ├── label_faces.py         STEP -> labels
-│   ├── refine_labels.py       weighted scoring
-│   ├── extract_features.py    labels -> graphs
+│   ├── refine_labels.py       fillet/chamfer/sphere
+│   ├── extract_features_stl.py labels+STL -> 26-dim graphs
 │   ├── train.py               GNN training
 │   ├── train_mlp.py           MLP training
-│   ├── step_to_stl.py         STEP -> STL
-│   ├── infer.py               inference pipeline
+│   ├── build_mlp_data.py      STL+labels -> edge data
+│   ├── step_to_stl.py         STEP -> multi-density STL
+│   ├── infer.py               full inference pipeline
 │   └── eval_pipeline.py       evaluation
-├── models/              model weights + training plots
-└── viewer/              localhost:8006 (Compare / Labels / Infer)
+├── models/               weights + training logs
+└── viewer/               localhost:8006 (Compare/Labels/Infer/Model)
 ```
-
-## Requirements
-
-- Python 3.11+
-- PyTorch + PyTorch Geometric
-- pythonocc-core
-- numpy, scipy, trimesh, flask
-
-## Related Work
-
-| Paper | Venue | Link |
-|-------|-------|------|
-| SPFN | CVPR 2019 | [arXiv](https://arxiv.org/abs/1811.08988) |
-| CPFN | ICCV 2021 | [code](https://github.com/erictuanle/CPFN) |
-| FilletRec (ZJU) | 2025 | [arXiv](https://arxiv.org/abs/2511.05561) |
-| MeshCNN | SIGGRAPH 2019 | [code](https://github.com/ranahanocka/MeshCNN) |
-| NVDNet | SIGGRAPH 2024 | [arXiv](https://arxiv.org/abs/2406.05261) |
 
 ## License
 

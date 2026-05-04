@@ -16,9 +16,35 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 
 LABEL_NAMES = ["plane", "cylinder", "sphere", "cone", "torus", "fillet", "chamfer", "freeform"]
 NUM_CLASSES = len(LABEL_NAMES)
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 HIDDEN_DIM, NUM_LAYERS, DROPOUT = 128, 3, 0.3
-BATCH_SIZE, LR, EPOCHS, K = 16, 0.001, 80, 5
+BATCH_SIZE, LR, EPOCHS, K = 512, 0.001, 80, 5
+
+
+def auto_tune_batch(model, graphs):
+    """Find max batch size for GNN by probing VRAM."""
+    candidates = [64, 128, 256, 512, 1024, 2048, 4096]
+    best = 64
+    for bs in candidates:
+        if bs > len(graphs): break
+        try:
+            torch.cuda.empty_cache()
+            loader = DataLoader(graphs[:bs], batch_size=bs, shuffle=True)
+            batch = next(iter(loader)).to(DEVICE)
+            model.train(); out = model(batch)
+            l = F.nll_loss(out, batch.y); l.backward()
+            used = torch.cuda.memory_allocated() / 1e9
+            total = torch.cuda.get_device_properties(0).total_memory / 1e9
+            pct = used / total * 100
+            best = bs
+            del batch, out, l
+            if pct > 80:
+                print(f"  BS={bs}: {pct:.0f}% VRAM, sufficient")
+                break
+        except RuntimeError:
+            torch.cuda.empty_cache()
+            break
+    return best
 
 
 class FaceClassifier(nn.Module):
@@ -59,7 +85,7 @@ def evaluate(model, loader, class_weights):
     return correct / max(total, 1), loss_sum / len(loader.dataset)
 
 
-def main():
+if __name__ == "__main__":
     files = sorted(GRAPH_DIR.glob("*.npz"))
     graphs = [load_graph(f) for f in files]
     print(f"Loaded {len(graphs)} graphs")
@@ -71,6 +97,12 @@ def main():
 
     in_dim = graphs[0].x.shape[1]
     print(f"Input dim: {in_dim}, Device: {DEVICE}")
+if DEVICE.type == 'cuda':
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.set_float32_matmul_precision('high')
+    print(f"GPU: {torch.cuda.get_device_name(0)}, VRAM: {torch.cuda.get_device_properties(0).total_memory/1e9:.1f} GB, TF32 enabled")
     fold_accs = []; fold_histories = []
 
     for fold_idx in range(K):
@@ -91,6 +123,12 @@ def main():
         model = FaceClassifier(in_dim, HIDDEN_DIM, NUM_CLASSES, NUM_LAYERS, DROPOUT).to(DEVICE)
         opt = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=1e-5)
         sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=EPOCHS)
+
+        if fold_idx == 0:
+            BATCH_SIZE = auto_tune_batch(model, train_graphs)
+            print(f"  Using BS={BATCH_SIZE}")
+            train_loader = DataLoader(train_graphs, batch_size=BATCH_SIZE, shuffle=True)
+            val_loader = DataLoader(val_graphs, batch_size=BATCH_SIZE*2, shuffle=False)
 
         best_val_acc = 0; history = {'train_loss': [], 'val_acc': []}
         for epoch in range(1, EPOCHS+1):
