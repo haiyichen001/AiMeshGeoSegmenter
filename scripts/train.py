@@ -14,7 +14,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","freeform"]
 NC, K, EPOCHS = len(LABEL_NAMES), 3, 250
-HIDDEN, HEADS, LAYERS, DROPOUT = 128, 4, 3, 0.3
+HIDDEN, HEADS, LAYERS, DROPOUT = 192, 4, 3, 0.3
 
 if DEVICE.type == 'cuda':
     torch.backends.cudnn.benchmark = True
@@ -35,8 +35,17 @@ if DEVICE.type == 'cuda':
             torch.cuda.empty_cache()
 
 
+def focal_loss(logits, targets, alpha=None, gamma=2.0):
+    ce = F.cross_entropy(logits, targets, reduction='none')
+    pt = torch.exp(-ce)
+    loss = (1 - pt) ** gamma * ce
+    if alpha is not None:
+        loss = alpha[targets] * loss
+    return loss.mean()
+
+
 class TriangleGAT(nn.Module):
-    def __init__(self, in_dim=10, hidden=128, heads=4, n_classes=8, n_layers=3, dropout=0.3):
+    def __init__(self, in_dim=12, hidden=192, heads=4, n_classes=6, n_layers=3, dropout=0.3):
         super().__init__()
         self.convs = nn.ModuleList(); self.norms = nn.ModuleList()
         ch = [in_dim] + [hidden*heads]*n_layers
@@ -95,8 +104,26 @@ def load_part(fp):
     nbr_norm_var = np.zeros(len(areas), dtype=np.float32)
     if len(adj) > 0:
         for a,b in adj: d_n = np.linalg.norm(normals[a]-normals[b]); nbr_norm_var[a]+=d_n; nbr_norm_var[b]+=d_n
+    # Curvature features (per-triangle, computed from mesh)
+    e1 = verts[faces[:,1]] - verts[faces[:,0]]
+    e2 = verts[faces[:,2]] - verts[faces[:,0]]
+    e3 = verts[faces[:,2]] - verts[faces[:,1]]
+    perimeter = np.linalg.norm(e1, axis=1) + np.linalg.norm(e2, axis=1) + np.linalg.norm(e3, axis=1)
+    shape = np.sqrt(np.maximum(areas, 1e-12)) / np.maximum(perimeter * 0.07, 1e-12)  # compactness [0~1]
+    # Mean & max dihedral angle from adjacency
+    dihedral = np.zeros(len(areas), dtype=np.float32)
+    max_dih = np.zeros(len(areas), dtype=np.float32)
+    if len(adj) > 0:
+        for a,b in adj:
+            dot = np.clip(np.abs(np.dot(normals[a], normals[b])), 0, 1)
+            ang = float(np.arccos(dot) * 180 / np.pi)
+            dihedral[a] += ang; dihedral[b] += ang
+            max_dih[a] = max(max_dih[a], ang)
+            max_dih[b] = max(max_dih[b], ang)
+        nbr_cnt = np.bincount(np.concatenate([adj[:,0], adj[:,1]]), minlength=len(areas))
+        mask = nbr_cnt > 0; dihedral[mask] /= nbr_cnt[mask]
     x = np.stack([normals[:,0],normals[:,1],normals[:,2], rel_ctr[:,0],rel_ctr[:,1],rel_ctr[:,2],
-                  area_log,center_dist,nbr_norm_var,np.zeros(len(areas),dtype=np.float32)], axis=1)
+                  area_log,center_dist,nbr_norm_var, dihedral, max_dih, shape], axis=1)
     ei = adj.T if len(adj)>0 else np.zeros((2,1),dtype=np.int64)
     return Data(x=torch.tensor(x), edge_index=torch.tensor(ei, dtype=torch.long),
                 y=torch.tensor(labels), num_nodes=len(areas))
@@ -140,7 +167,7 @@ if __name__ == "__main__":
             model.train(); tls, nb = 0, 0; check_vram()
             for batch in tl:
                 batch = batch.to(DEVICE); opt.zero_grad()
-                loss = F.cross_entropy(model(batch), batch.y, weight=cw, label_smoothing=0.05)
+                loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0)
                 loss.backward(); opt.step(); tls += loss.item()*batch.num_graphs; nb += 1
             hist['loss'].append(tls/len(tg))
             model.eval(); correct, total, vls = 0, 0, 0
@@ -148,7 +175,7 @@ if __name__ == "__main__":
                 for batch in vl:
                     batch = batch.to(DEVICE)
                     logits = model(batch)
-                    vls += F.cross_entropy(logits, batch.y, weight=cw).item() * batch.num_graphs
+                    vls += focal_loss(logits, batch.y, alpha=cw).item() * batch.num_graphs
                     pred = logits.argmax(dim=1)
                     correct += (pred==batch.y).sum().item(); total += batch.y.size(0)
             hist['val_loss'].append(vls/len(vg))
@@ -176,7 +203,7 @@ if __name__ == "__main__":
         fm.train(); tls, nb = 0, 0
         for batch in al:
             batch = batch.to(DEVICE); opt.zero_grad()
-            loss = F.cross_entropy(fm(batch), batch.y, weight=cw, label_smoothing=0.05)
+            loss = focal_loss(fm(batch), batch.y, alpha=cw, gamma=2.0)
             loss.backward(); opt.step(); tls += loss.item()*batch.num_graphs; nb += 1
         final_hist['loss'].append(tls/len(graphs))
 

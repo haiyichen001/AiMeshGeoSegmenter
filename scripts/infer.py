@@ -17,7 +17,7 @@ COLORS = {"plane":"#4db8ff","cylinder":"#44cc44","sphere":"#ff44ff","cone":"#ff8
           "torus":"#ffcc00","freeform":"#888888"}
 
 class TriangleGAT(nn.Module):
-    def __init__(self, in_dim=10, hidden=128, heads=4, n_classes=6, n_layers=3, dropout=0.3):
+    def __init__(self, in_dim=12, hidden=192, heads=4, n_classes=6, n_layers=3, dropout=0.3):
         super().__init__()
         self.convs = nn.ModuleList(); self.norms = nn.ModuleList()
         ch = [in_dim] + [hidden*heads]*n_layers
@@ -113,10 +113,24 @@ def predict_stl(stl_path, model_path=None, refine=True):
     m = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
     adj = m.face_adjacency
     nbr_norm_var = np.zeros(len(areas), dtype=np.float32)
+    dihedral = np.zeros(len(areas), dtype=np.float32)
+    max_dih = np.zeros(len(areas), dtype=np.float32)
     if len(adj)>0:
-        for a,b in adj: d=np.linalg.norm(normals[a]-normals[b]); nbr_norm_var[a]+=d; nbr_norm_var[b]+=d
+        nbr_cnt = np.zeros(len(areas), dtype=np.int32)
+        for a,b in adj:
+            d=np.linalg.norm(normals[a]-normals[b]); nbr_norm_var[a]+=d; nbr_norm_var[b]+=d
+            dot = np.clip(np.abs(np.dot(normals[a], normals[b])), 0, 1)
+            ang = float(np.arccos(dot) * 180 / np.pi)
+            dihedral[a] += ang; dihedral[b] += ang
+            max_dih[a] = max(max_dih[a], ang); max_dih[b] = max(max_dih[b], ang)
+            nbr_cnt[a] += 1; nbr_cnt[b] += 1
+        mask = nbr_cnt > 0; dihedral[mask] /= nbr_cnt[mask]
+    # Shape compactness
+    e3 = verts[faces[:,2]] - verts[faces[:,1]]
+    perimeter = nrm.flatten() + np.linalg.norm(e1,axis=1) + np.linalg.norm(e3,axis=1)
+    shape = np.sqrt(np.maximum(areas, 1e-12)) / np.maximum(perimeter * 0.07, 1e-12)
     x = np.stack([normals[:,0],normals[:,1],normals[:,2],rel_ctr[:,0],rel_ctr[:,1],rel_ctr[:,2],
-                  area_log,center_dist,nbr_norm_var,np.zeros(len(areas),dtype=np.float32)],axis=1)
+                  area_log,center_dist,nbr_norm_var, dihedral, max_dih, shape],axis=1)
     ei = adj.T if len(adj)>0 else np.zeros((2,1),dtype=np.int64)
     data = Data(x=torch.tensor(x), edge_index=torch.tensor(ei, dtype=torch.long))
 
