@@ -175,17 +175,14 @@ def warmup_cosine_scheduler(optimizer, warmup_epochs, total_epochs):
 
 if __name__ == "__main__":
     import torch, sys
-    # Tee stdout to log file for background runs
-    log_file = open(MODEL_DIR / "train.log", "w", encoding="utf-8")
-    class Tee:
-        def __init__(self, *files): self.files = files
-        def write(self, s):
-            for f in self.files: f.write(s); f.flush()
-        def flush(self):
-            for f in self.files: f.flush()
-    sys.stdout = Tee(sys.stdout, log_file)
-
     CACHE = ROOT / "data" / "graphs_20k.pt"
+    # Redirect stdout to both log file and stderr for real-time output
+    class TeeIO:
+        def __init__(self, f1, f2): self.f1 = f1; self.f2 = f2
+        def write(self, s): self.f1.write(s); self.f1.flush(); self.f2.write(s); self.f2.flush()
+        def flush(self): self.f1.flush(); self.f2.flush()
+    log_f = open(MODEL_DIR / "train.log", "w", encoding="utf-8")
+    sys.stdout = TeeIO(log_f, sys.stderr)
     if CACHE.exists():
         print(f"Loading from cache: {CACHE.name} ({CACHE.stat().st_size/1024/1024:.0f} MB)..."); t1=time.time()
         graphs = torch.load(CACHE, map_location='cpu', weights_only=False)
