@@ -197,7 +197,7 @@ def process_one(step_path):
             except:
                 pass
 
-            # Sphere recovery from BSpline
+            # Recovery: plane then sphere from freeform faces
             if base=="freeform":
                 loc=TopLoc_Location(); tri=BRep_Tool().Triangulation(fm.FindKey(i),loc)
                 if tri is not None:
@@ -206,15 +206,26 @@ def process_one(step_path):
                         p=tri.Node(j); p.Transform(trsf); pts.append([p.X(),p.Y(),p.Z()])
                     pts=np.array(pts)
                     if len(pts)>=30:
-                        A=np.column_stack([2*pts, np.ones(len(pts))])
-                        b=(pts**2).sum(axis=1)
-                        try:
-                            x,_,_,_=np.linalg.lstsq(A,b,rcond=None)
-                            c=x[:3]; r2=x[3]+np.dot(c,c)
-                            if r2>0:
-                                r=np.sqrt(r2); dists=np.abs(np.linalg.norm(pts-c,axis=1)-r)
-                                if np.sqrt((dists**2).mean())/max(r,1e-6)<0.02: base="sphere"
-                        except: pass
+                        # Check planarity
+                        c_pl = pts.mean(axis=0)
+                        _, s_pl, vh = np.linalg.svd(pts - c_pl)
+                        normal = vh[2]
+                        dists_pl = np.abs(np.dot(pts - c_pl, normal))
+                        rms_pl = np.sqrt((dists_pl**2).mean())
+                        span = float(np.sqrt(((pts.max(axis=0)-pts.min(axis=0))**2).sum()))
+                        if rms_pl / max(span, 1e-6) < 1e-4:
+                            base = "plane"
+                        else:
+                            # Try sphere
+                            A=np.column_stack([2*pts, np.ones(len(pts))])
+                            b=(pts**2).sum(axis=1)
+                            try:
+                                x,_,_,_=np.linalg.lstsq(A,b,rcond=None)
+                                c=x[:3]; r2=x[3]+np.dot(c,c)
+                                if r2>0:
+                                    r=np.sqrt(r2); dists=np.abs(np.linalg.norm(pts-c,axis=1)-r)
+                                    if np.sqrt((dists**2).mean())/max(r,1e-6)<0.02: base="sphere"
+                            except: pass
             face_labels[i]=L2I[base]
 
         # Unified mesh: collect all triangles with face IDs

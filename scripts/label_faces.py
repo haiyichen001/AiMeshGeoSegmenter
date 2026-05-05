@@ -67,6 +67,7 @@ OCCT_NAMES = {
 
 RADIUS_RATIO = 0.10
 SPHERE_FIT_TOL = 0.02
+PLANE_FIT_TOL = 1e-4  # relative RMS error for plane fitting
 
 
 def face_norm_from_verts(verts):
@@ -113,6 +114,24 @@ def angle_between_faces(f1, f2):
     # Both planar: standard normal angle
     dot = min(1.0, max(0.0, abs(np.dot(d1, d2))))
     return float(np.arccos(dot) * 180 / np.pi)
+
+
+def try_fit_plane(verts_list):
+    """Check if vertices lie on a plane. Returns (ok, normal, rms_error/span)."""
+    if len(verts_list) < 9:
+        return False, None, 1.0
+    pts = np.array(verts_list).reshape(-1, 3)
+    if len(pts) > 500:
+        idx = np.random.choice(len(pts), 500, replace=False)
+        pts = pts[idx]
+    c = pts.mean(axis=0)
+    u, s, vh = np.linalg.svd(pts - c)
+    normal = vh[2]  # smallest singular vector = plane normal
+    dists = np.abs(np.dot(pts - c, normal))
+    rms = np.sqrt((dists**2).mean())
+    span = float(np.sqrt(((pts.max(axis=0) - pts.min(axis=0))**2).sum()))
+    rel_err = rms / max(span, 1e-6)
+    return True, normal.tolist(), float(rel_err)
 
 
 def try_fit_sphere(verts_list):
@@ -348,15 +367,23 @@ def process_one(step_path):
 
         diagonal = float(np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2))
 
-        # --- Sphere recovery: fit sphere to freeform faces ---
+        # --- Recovery: detect planes then spheres from freeform faces ---
         label_dist = collections.Counter()
         for f in faces_data:
             occ = f["occ_type"]
             if f["label"] == "freeform" or occ in ("Bezier", "BSpline", "Revolution", "Extrusion", "Other"):
                 verts = f.get("vertices", [])
-                ok_sp, c_sp, r_sp, rel_err = try_fit_sphere(verts)
-                if ok_sp and rel_err < SPHERE_FIT_TOL:
+
+                # 1. Check if actually planar
+                ok_pl, n_pl, rel_pl = try_fit_plane(verts)
+                if ok_pl and rel_pl < PLANE_FIT_TOL:
+                    f["label"] = "plane"; label_dist["plane"] += 1; continue
+
+                # 2. Check if actually spherical
+                ok_sp, c_sp, r_sp, rel_sp = try_fit_sphere(verts)
+                if ok_sp and rel_sp < SPHERE_FIT_TOL:
                     f["label"] = "sphere"; label_dist["sphere"] += 1; continue
+
                 f["label"] = "freeform"; label_dist["freeform"] += 1
             else:
                 label_dist[f["label"]] += 1

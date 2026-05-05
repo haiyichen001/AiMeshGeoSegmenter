@@ -141,7 +141,7 @@ function createView(i, format) {
   el.appendChild(renderer.domElement);
   renderers[i] = renderer;
 
-  const cam = new THREE.PerspectiveCamera(35,1,0.001,1000);
+  const cam = new THREE.PerspectiveCamera(35,1,0.01,100000);
   cam.position.set(1,0.6,1.5); cam.up.set(0,0,1);
 
   const ctrl = new OrbitControls(cam, renderer.domElement);
@@ -219,6 +219,12 @@ async function loadFormat(i, format, part) {
       if (!r.ok) return;
       const d = await r.json();
       globalCenter = d.center; globalSpan = d.span;
+      // Update camera clipping planes for this part size
+      for (let j = 0; j < views.length; j++) {
+        views[j].cam.near = Math.max(0.001, d.span * 0.0001);
+        views[j].cam.far = d.span * 20;
+        views[j].cam.updateProjectionMatrix();
+      }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(d.vertices,3));
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(d.normals,3));
