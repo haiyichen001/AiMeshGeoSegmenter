@@ -115,10 +115,6 @@ function render(log) {
       const ba = f.acc && f.acc.length ? Math.max(...f.acc) : 0;
       h += `<span style="font-size:12px;color:${TEXT};margin-left:8px">Best Acc: ${(ba*100).toFixed(2)}%</span>`;
 
-      const series = [{label: 'Train Loss', values: f.loss || [], color: '#f97316'}];
-      if (f.val_loss && f.val_loss.length) series.push({label: 'Val Loss', values: f.val_loss, color: '#ef4444'});
-      if (f.acc && f.acc.length) series.push({label: 'Val Acc', values: f.acc.map(v=>v*(ymax_for(series)||1)), color: '#06b6d4'});
-
       // Combined loss chart
       if (f.loss && f.loss.length > 1) {
         h += '<div style="margin:8px 0"><div style="font-size:11px;color:'+TEXT+';margin-bottom:2px">Training Curves</div>';
