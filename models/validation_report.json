@@ -1,0 +1,40 @@
+{
+  "parts": 1000,
+  "triangles": 303680,
+  "time_s": 6.0,
+  "overall_acc": 0.6561,
+  "mean_per_part_acc": 0.7616,
+  "std_per_part_acc": 0.2312,
+  "per_class": {
+    "plane": {
+      "correct": 79877,
+      "total": 104833,
+      "acc": 0.7619
+    },
+    "cylinder": {
+      "correct": 48364,
+      "total": 85696,
+      "acc": 0.5644
+    },
+    "sphere": {
+      "correct": 4008,
+      "total": 15915,
+      "acc": 0.2518
+    },
+    "cone": {
+      "correct": 7585,
+      "total": 20722,
+      "acc": 0.366
+    },
+    "torus": {
+      "correct": 55801,
+      "total": 62327,
+      "acc": 0.8953
+    },
+    "freeform": {
+      "correct": 3616,
+      "total": 14187,
+      "acc": 0.2549
+    }
+  }
+}
