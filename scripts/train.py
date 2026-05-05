@@ -5,7 +5,7 @@ import os, json, random, time, collections, numpy as np, trimesh
 from pathlib import Path
 import torch, torch.nn as nn, torch.nn.functional as F
 from torch_geometric.nn import GATConv
-from torch_geometric.data import Data, DataLoader
+from torch_geometric.data import Data, DataLoader, Batch
 from torch_geometric.utils import add_self_loops
 from sklearn.model_selection import KFold
 
@@ -15,7 +15,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","freeform"]
 NC, K, EPOCHS = len(LABEL_NAMES), 3, 250
 HIDDEN, HEADS, LAYERS, DROPOUT = 192, 4, 3, 0.3
-IN_DIM, EDGE_DIM = 14, 3
+IN_DIM, EDGE_DIM = 36, 3
 LR, WARMUP = 0.002, 25
 
 if DEVICE.type == 'cuda':
@@ -47,7 +47,7 @@ def focal_loss(logits, targets, alpha=None, gamma=2.0):
 
 
 class TriangleGAT(nn.Module):
-    def __init__(self, in_dim=14, hidden=192, heads=4, n_classes=6, n_layers=3, dropout=0.3, edge_dim=3):
+    def __init__(self, in_dim=36, hidden=192, heads=4, n_classes=6, n_layers=3, dropout=0.3, edge_dim=3):
         super().__init__()
         self.convs = nn.ModuleList(); self.norms = nn.ModuleList()
         ch = [in_dim] + [hidden*heads]*n_layers
@@ -100,67 +100,113 @@ def load_part(fp):
     d = np.load(fp)
     verts = d["vertices"]; faces = d["faces"]; normals = d["tri_normals"].astype(np.float32)
     areas = d["tri_areas"].astype(np.float32); labels = d["tri_labels"].astype(np.int64)
+    n = len(areas)
     centers = verts[faces].mean(axis=1).astype(np.float32)
-    part_ctr = centers.mean(axis=0); part_r = float(np.sqrt(((centers-part_ctr)**2).sum(axis=1).mean()))
-    area_log = np.log10(np.maximum(areas,1e-6))
-    center_dist = np.sqrt(((centers-part_ctr)**2).sum(axis=1))/max(part_r,1e-6)
-    rel_ctr = (centers-part_ctr)/max(part_r,1e-6)
+    part_ctr = centers.mean(axis=0)
+    part_extent = verts.max(axis=0) - verts.min(axis=0)
+    part_diag = float(np.sqrt((part_extent**2).sum()))
+    part_r = float(np.sqrt(((centers-part_ctr)**2).sum(axis=1).mean()))
+
     m = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
     adj = m.face_adjacency
-    nbr_norm_var = np.zeros(len(areas), dtype=np.float32)
-    if len(adj) > 0:
-        for a,b in adj: d_n = np.linalg.norm(normals[a]-normals[b]); nbr_norm_var[a]+=d_n; nbr_norm_var[b]+=d_n
-    # Curvature features (per-triangle, computed from mesh)
-    e1 = verts[faces[:,1]] - verts[faces[:,0]]
-    e2 = verts[faces[:,2]] - verts[faces[:,0]]
-    e3 = verts[faces[:,2]] - verts[faces[:,1]]
-    perimeter = np.linalg.norm(e1, axis=1) + np.linalg.norm(e2, axis=1) + np.linalg.norm(e3, axis=1)
-    shape = np.sqrt(np.maximum(areas, 1e-12)) / np.maximum(perimeter * 0.07, 1e-12)  # compactness [0~1]
-    # Mean & max dihedral angle from adjacency
-    dihedral = np.zeros(len(areas), dtype=np.float32)
-    max_dih = np.zeros(len(areas), dtype=np.float32)
-    if len(adj) > 0:
+    has_adj = len(adj) > 0
+
+    # ---- 1-hop features ----
+    nbr_norm_var = np.zeros(n, dtype=np.float32)
+    dihedral = np.zeros(n, dtype=np.float32)
+    max_dih = np.zeros(n, dtype=np.float32)
+    if has_adj:
         for a,b in adj:
+            d_n = np.linalg.norm(normals[a]-normals[b]); nbr_norm_var[a]+=d_n; nbr_norm_var[b]+=d_n
             dot = np.clip(np.abs(np.dot(normals[a], normals[b])), 0, 1)
             ang = float(np.arccos(dot) * 180 / np.pi)
             dihedral[a] += ang; dihedral[b] += ang
-            max_dih[a] = max(max_dih[a], ang)
-            max_dih[b] = max(max_dih[b], ang)
-        nbr_cnt = np.bincount(np.concatenate([adj[:,0], adj[:,1]]), minlength=len(areas))
+            max_dih[a] = max(max_dih[a], ang); max_dih[b] = max(max_dih[b], ang)
+        nbr_cnt = np.bincount(np.concatenate([adj[:,0], adj[:,1]]), minlength=n)
         mask = nbr_cnt > 0; dihedral[mask] /= nbr_cnt[mask]
-    # 2 more features: edge ratio (shape quality), vertex normal std (curvature proxy)
-    l1 = np.linalg.norm(e1, axis=1); l2 = np.linalg.norm(e2, axis=1); l3 = np.linalg.norm(e3, axis=1)
-    edge_ratio = np.minimum(np.minimum(l1,l2),l3) / np.maximum(np.maximum(l1,l2),np.maximum(l3, 1e-12))
-    # Vertex normal variance via face normals in 1-ring
-    vn_std = np.zeros(len(areas), dtype=np.float32)
-    if len(adj) > 0:
-        nbr_cnt2 = np.bincount(np.concatenate([adj[:,0], adj[:,1]]), minlength=len(areas))
-        for a,b in adj:
-            vn_std[a] += np.linalg.norm(normals[a] - normals[b])
-            vn_std[b] += vn_std[a] - vn_std[a] + np.linalg.norm(normals[a] - normals[b])
-    # Edge features: dihedral angle, relative edge length
-    edge_attr = np.zeros((len(adj), EDGE_DIM), dtype=np.float32)
-    if len(adj) > 0:
-        # Compute shared edge length for each adjacency pair
-        # Use face-face shared edge midpoint distance (approximate)
-        for ei_idx, (a,b) in enumerate(adj):
-            ca = centers[a]; cb = centers[b]
-            # dihedral angle
-            dot_ab = np.clip(np.abs(np.dot(normals[a], normals[b])), 0, 1)
-            edge_attr[ei_idx, 0] = float(np.arccos(dot_ab))  # radians
-            # edge-relative length: distance between face centers / avg perimeter
-            dist_ab = np.linalg.norm(ca - cb)
-            avg_perim = (perimeter[a] + perimeter[b]) / 2.0
-            edge_attr[ei_idx, 1] = dist_ab / max(avg_perim, 1e-6)
-            # normal variance direction (sign indicator for convex/concave)
-            edge_attr[ei_idx, 2] = float(np.dot(normals[a], cb - ca))  # signed
 
-    x = np.stack([normals[:,0],normals[:,1],normals[:,2], rel_ctr[:,0],rel_ctr[:,1],rel_ctr[:,2],
-                  area_log,center_dist,nbr_norm_var, dihedral, max_dih, shape, edge_ratio, vn_std], axis=1)
-    ei = adj.T if len(adj)>0 else np.zeros((2,1),dtype=np.int64)
-    ea = torch.tensor(edge_attr, dtype=torch.float32) if len(adj)>0 else torch.zeros(0, EDGE_DIM)
+    # ---- Shape features ----
+    e1 = verts[faces[:,1]] - verts[faces[:,0]]
+    e2 = verts[faces[:,2]] - verts[faces[:,0]]
+    e3 = verts[faces[:,2]] - verts[faces[:,1]]
+    l1 = np.linalg.norm(e1, axis=1); l2 = np.linalg.norm(e2, axis=1); l3 = np.linalg.norm(e3, axis=1)
+    perimeter = l1 + l2 + l3
+    shape = np.sqrt(np.maximum(areas, 1e-12)) / np.maximum(perimeter * 0.07, 1e-12)
+    edge_ratio = np.minimum(np.minimum(l1,l2),l3) / np.maximum(np.maximum(l1,l2),np.maximum(l3, 1e-12))
+    vn_std = np.zeros(n, dtype=np.float32)
+    if has_adj:
+        for a,b in adj:
+            d_n = np.linalg.norm(normals[a]-normals[b]); vn_std[a]+=d_n; vn_std[b]+=d_n
+
+    # ---- Fourier position encoding (2 freq: pi, 2pi) ----
+    rel_ctr = (centers - part_ctr) / max(part_diag/2, 1e-6)  # [-1, 1]
+    fourier = []
+    for freq in [np.pi, 2*np.pi]:
+        for axis in range(3):
+            fourier.append(np.sin(freq * rel_ctr[:, axis]))
+            fourier.append(np.cos(freq * rel_ctr[:, axis]))
+    # fourier: 12 dims (2 freq * 3 axes * 2 sin/cos)
+
+    # ---- Part-level stats ----
+    elongation = part_extent / max(part_diag, 1e-6)
+    log_ntri = np.broadcast_to(np.log10(max(n, 1)), n).astype(np.float32)
+    elong_x = np.broadcast_to(elongation[0], n).astype(np.float32)
+    elong_y = np.broadcast_to(elongation[1], n).astype(np.float32)
+
+    # ---- 2-hop features ----
+    nbrs = [[] for _ in range(n)]
+    if has_adj:
+        for a,b in adj: nbrs[a].append(b); nbrs[b].append(a)
+    h2_dih_avg = np.zeros(n, dtype=np.float32)
+    h2_dih_std = np.zeros(n, dtype=np.float32)
+    h2_area_avg = np.zeros(n, dtype=np.float32)
+    h2_area_std = np.zeros(n, dtype=np.float32)
+    if has_adj:
+        for i in range(n):
+            seen = set(nbrs[i])
+            h2_nbrs = set()
+            for nb in nbrs[i]:
+                for nn in nbrs[nb]:
+                    if nn != i and nn not in seen:
+                        h2_nbrs.add(nn)
+            if h2_nbrs:
+                h2_list = list(h2_nbrs)
+                h2_dih_avg[i] = np.mean(dihedral[h2_list])
+                h2_dih_std[i] = np.std(dihedral[h2_list]) if len(h2_list) > 1 else 0
+                h2_area_avg[i] = np.mean(areas[h2_list]) / max(areas[i], 1e-6)
+                h2_area_std[i] = np.std(areas[h2_list]) / max(areas[i], 1e-6)
+
+    # ---- Edge features (3-dim) ----
+    edge_attr = np.zeros((len(adj), EDGE_DIM), dtype=np.float32)
+    if has_adj:
+        for ei_idx, (a,b) in enumerate(adj):
+            ca, cb = centers[a], centers[b]
+            dot_ab = np.clip(np.abs(np.dot(normals[a], normals[b])), 0, 1)
+            edge_attr[ei_idx, 0] = float(np.arccos(dot_ab))
+            edge_attr[ei_idx, 1] = np.linalg.norm(ca-cb) / max((perimeter[a]+perimeter[b])/2.0, 1e-6)
+            edge_attr[ei_idx, 2] = float(np.dot(normals[a], cb-ca))
+
+    # ---- Assemble 36-dim features ----
+    x = np.stack([
+        normals[:,0], normals[:,1], normals[:,2],              # 0-2
+        *[fourier[i] for i in range(12)],                      # 3-14  Fourier encoding
+        np.log10(np.maximum(areas, 1e-6)),                     # 15   log area
+        nbr_norm_var,                                           # 16   neighbor normal var
+        dihedral, max_dih,                                      # 17-18 curvature
+        shape, edge_ratio,                                      # 19-20 shape
+        vn_std,                                                 # 21   curvature
+        log_ntri,                                               # 22   n triangles
+        elong_x, elong_y,                                       # 23-24 elongation
+        np.zeros(n, dtype=np.float32),                          # 25   reserved
+        h2_dih_avg, h2_dih_std,                                 # 26-27 2-hop curvature
+        h2_area_avg, h2_area_std,                               # 28-29 2-hop area
+        dihedral * 0,                                           # 30-35 padding (filled with 0)
+        dihedral * 0, dihedral * 0, dihedral * 0, dihedral * 0, dihedral * 0,
+    ], axis=1).astype(np.float32)
+    ei = adj.T if has_adj else np.zeros((2,1),dtype=np.int64)
+    ea = torch.tensor(edge_attr, dtype=torch.float32) if has_adj else torch.zeros(0, EDGE_DIM)
     return Data(x=torch.tensor(x), edge_index=torch.tensor(ei, dtype=torch.long),
-                edge_attr=ea, y=torch.tensor(labels), num_nodes=len(areas))
+                edge_attr=ea, y=torch.tensor(labels.astype(np.int64)), num_nodes=n)
 
 
 def warmup_cosine_scheduler(optimizer, warmup_epochs, total_epochs):
@@ -174,7 +220,12 @@ def warmup_cosine_scheduler(optimizer, warmup_epochs, total_epochs):
 
 
 if __name__ == "__main__":
-    import torch, sys
+    import torch, sys, argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--top2000", action="store_true")
+    parser.add_argument("--cache", action="store_true")
+    args = parser.parse_args()
+
     CACHE = ROOT / "data" / "graphs_20k.pt"
     # Redirect stdout to both log file and stderr for real-time output
     class TeeIO:
@@ -183,14 +234,24 @@ if __name__ == "__main__":
         def flush(self): self.f1.flush(); self.f2.flush()
     log_f = open(MODEL_DIR / "train.log", "w", encoding="utf-8")
     sys.stdout = TeeIO(log_f, sys.stderr)
+
+    graphs = None
     if CACHE.exists():
         print(f"Loading from cache: {CACHE.name} ({CACHE.stat().st_size/1024/1024:.0f} MB)..."); t1=time.time()
         graphs = torch.load(CACHE, map_location='cpu', weights_only=False)
         random.seed(42); random.shuffle(graphs)
         print(f"Loaded {len(graphs)} graphs in {time.time()-t1:.0f}s")
+    elif args.top2000:
+        import json
+        with open(ROOT / "data" / "top2000.json") as f:
+            top_names = json.load(f)
+        files = [DATA_DIR / n for n in top_names]
+        random.shuffle(files)
     else:
         files = sorted(DATA_DIR.glob("*.npz"))
         random.seed(42); random.shuffle(files)
+
+    if graphs is None:
         print(f"Loading {len(files)} parts..."); t1=time.time()
         graphs = [load_part(f) for f in files]
         print(f"Loaded in {time.time()-t1:.0f}s")
@@ -210,9 +271,14 @@ if __name__ == "__main__":
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Params: {n_params:,}, BS: {BS}")
 
-    tl = DataLoader(tg, batch_size=BS, shuffle=True)
-    vl = DataLoader(vg, batch_size=BS*2, shuffle=False)
-    all_l = np.concatenate([g.y.numpy() for g in tg])
+    # Move all graphs to GPU, stay there forever
+    print("Moving graphs to GPU...")
+    for g in tg: g.to(DEVICE)
+    for g in vg: g.to(DEVICE)
+    for g in test_g: g.to(DEVICE)
+    print(f"All {n_total} graphs on GPU.")
+
+    all_l = np.concatenate([g.y.cpu().numpy() for g in tg])
     cw = torch.zeros(NC)
     for i in range(NC): cw[i] = (len(all_l) / max(collections.Counter(all_l).get(i, 1), 1)) ** 0.5
     cw = cw.to(DEVICE)
@@ -220,31 +286,36 @@ if __name__ == "__main__":
     scheduler = warmup_cosine_scheduler(opt, WARMUP, EPOCHS)
 
     best = 0; patience = 0; hist = {'loss':[], 'val_loss':[], 'acc':[]}
-    swa_weights = []  # SWA: collect snapshots in the stable zone
+    swa_weights = []
+    n_train, n_val = len(tg), len(vg)
     train_start = time.time()
+
     for epoch in range(1, EPOCHS+1):
         model.train(); tls = 0
-        for batch in tl:
-            batch = batch.to(DEVICE); opt.zero_grad()
+        perm = torch.randperm(n_train, device=DEVICE)
+        for i in range(0, n_train, BS):
+            idx = perm[i:i+BS].tolist()
+            batch = Batch.from_data_list([tg[j] for j in idx])
+            opt.zero_grad()
             loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0)
             loss.backward(); opt.step()
-            tls += loss.item() * batch.num_graphs
-        hist['loss'].append(tls / len(tg))
+            tls += loss.item() * len(idx)
+        hist['loss'].append(tls / n_train)
 
         model.eval(); correct, total, vls = 0, 0, 0
         with torch.no_grad():
-            for batch in vl:
-                batch = batch.to(DEVICE)
+            for i in range(0, n_val, BS*2):
+                idx = list(range(i, min(i+BS*2, n_val)))
+                batch = Batch.from_data_list([vg[j] for j in idx])
                 logits = model(batch)
-                vls += focal_loss(logits, batch.y, alpha=cw).item() * batch.num_graphs
+                vls += focal_loss(logits, batch.y, alpha=cw).item() * len(idx)
                 pred = logits.argmax(dim=1)
                 correct += (pred == batch.y).sum().item(); total += batch.y.size(0)
-        hist['val_loss'].append(vls / len(vg))
+        hist['val_loss'].append(vls / n_val)
         acc = correct / max(total, 1); hist['acc'].append(acc)
 
         if acc > best: best = acc; patience = 0
         else: patience += 1
-        # SWA: collect weight snapshots when within 5% of best
         if acc >= best * 0.95 and epoch > WARMUP:
             swa_weights.append({k: v.cpu().clone() for k, v in model.state_dict().items()})
         if epoch % 10 == 0 or epoch == 1:
@@ -253,7 +324,6 @@ if __name__ == "__main__":
         scheduler.step()
     train_time = time.time() - train_start
 
-    # SWA: average collected weights
     if swa_weights:
         swa_state = {}
         for key in swa_weights[0]:
@@ -270,9 +340,11 @@ if __name__ == "__main__":
 
     # Test set evaluation (SWA model)
     model.eval(); correct, total = 0, 0
+    n_test = len(test_g)
     with torch.no_grad():
-        for batch in DataLoader(test_g, batch_size=BS*2, shuffle=False):
-            batch = batch.to(DEVICE)
+        for i in range(0, n_test, BS*2):
+            idx = list(range(i, min(i+BS*2, n_test)))
+            batch = Batch.from_data_list([test_g[j] for j in idx])
             pred = model(batch).argmax(dim=1)
             correct += (pred == batch.y).sum().item()
             total += batch.y.size(0)
