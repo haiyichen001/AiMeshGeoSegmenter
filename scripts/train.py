@@ -177,111 +177,71 @@ if __name__ == "__main__":
     import torch
     files = sorted(DATA_DIR.glob("*.npz"))
     random.seed(42); random.shuffle(files); files = files[:2000]
-    print(f"Loading {len(files)} parts..."); t0=time.time()
+    print(f"Loading {len(files)} parts..."); t1=time.time()
     graphs = [load_part(f) for f in files]
-    print(f"Loaded in {time.time()-t0:.0f}s")
+    print(f"Loaded in {time.time()-t1:.0f}s")
 
-    kf = KFold(n_splits=K, shuffle=True, random_state=42)
-    splits = list(kf.split(files))
+    # 80/20 train/val split
+    n_train = int(len(files) * 0.8)
+    tg = graphs[:n_train]; vg = graphs[n_train:]
+    print(f"Train: {len(tg)}, Val: {len(vg)}")
 
-    ensemble_seeds = [42, 123, 456]
-    all_fold_accs = []
-    BS = 8
+    model = TriangleGAT(in_dim=graphs[0].x.shape[1], hidden=HIDDEN, heads=HEADS,
+                        n_classes=NC, n_layers=LAYERS, dropout=DROPOUT, edge_dim=EDGE_DIM).to(DEVICE)
+    BS = auto_batch(model, tg)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Params: {n_params:,}, BS: {BS}")
 
-    for model_idx, seed in enumerate(ensemble_seeds):
-        torch.manual_seed(seed); np.random.seed(seed); random.seed(seed)
-        if DEVICE.type == 'cuda': torch.cuda.manual_seed_all(seed)
-        print(f"\n{'#'*50}\nMODEL {model_idx+1}/{len(ensemble_seeds)} seed={seed}\n{'#'*50}")
+    tl = DataLoader(tg, batch_size=BS, shuffle=True)
+    vl = DataLoader(vg, batch_size=BS*2, shuffle=False)
+    all_l = np.concatenate([g.y.numpy() for g in tg])
+    cw = torch.zeros(NC)
+    for i in range(NC): cw[i] = (len(all_l) / max(collections.Counter(all_l).get(i, 1), 1)) ** 0.5
+    cw = cw.to(DEVICE)
+    opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+    scheduler = warmup_cosine_scheduler(opt, WARMUP, EPOCHS)
 
-        fold_histories = []
+    best = 0; patience = 0; hist = {'loss':[], 'val_loss':[], 'acc':[]}
+    train_start = time.time()
+    for epoch in range(1, EPOCHS+1):
+        model.train(); tls = 0
+        for batch in tl:
+            batch = batch.to(DEVICE); opt.zero_grad()
+            loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0)
+            loss.backward(); opt.step()
+            tls += loss.item() * batch.num_graphs
+        hist['loss'].append(tls / len(tg))
 
-        for fold_idx, (tidx, vidx) in enumerate(splits):
-            print(f"\n  FOLD {fold_idx+1}/{K}: train={len(tidx)} val={len(vidx)}")
-            tg = [graphs[i] for i in tidx]; vg = [graphs[i] for i in vidx]
+        model.eval(); correct, total, vls = 0, 0, 0
+        with torch.no_grad():
+            for batch in vl:
+                batch = batch.to(DEVICE)
+                logits = model(batch)
+                vls += focal_loss(logits, batch.y, alpha=cw).item() * batch.num_graphs
+                pred = logits.argmax(dim=1)
+                correct += (pred == batch.y).sum().item(); total += batch.y.size(0)
+        hist['val_loss'].append(vls / len(vg))
+        acc = correct / max(total, 1); hist['acc'].append(acc)
 
-            model = TriangleGAT(in_dim=graphs[0].x.shape[1], hidden=HIDDEN, heads=HEADS,
-                                n_classes=NC, n_layers=LAYERS, dropout=DROPOUT, edge_dim=EDGE_DIM).to(DEVICE)
-            if model_idx == 0 and fold_idx == 0:
-                BS = auto_batch(model, tg); n_params = sum(p.numel() for p in model.parameters())
-                print(f"  Params: {n_params:,}")
+        if acc > best: best = acc; patience = 0
+        else: patience += 1
+        if epoch % 10 == 0 or epoch == 1:
+            print(f"  Epoch {epoch:3d} | loss={hist['loss'][-1]:.3f} val_loss={hist['val_loss'][-1]:.3f} acc={acc:.3f} | patience={patience}/50")
+        if patience >= 50: print(f"  Early stop at {epoch}"); break
+        scheduler.step()
+    train_time = time.time() - train_start
 
-            tl = DataLoader(tg, batch_size=BS, shuffle=True)
-            vl = DataLoader(vg, batch_size=BS*2, shuffle=False)
-            all_l = np.concatenate([g.y.numpy() for g in tg])
-            cw = torch.zeros(NC)
-            for i in range(NC):
-                cnt = collections.Counter(all_l).get(i, 1)
-                cw[i] = (sum(all_l.shape) / max(cnt, 1)) ** 0.5
-            # Simpler class weight
-            for i in range(NC): cw[i] = (len(all_l) / max(collections.Counter(all_l).get(i, 1), 1)) ** 0.5
-            cw = cw.to(DEVICE)
-            opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
-            scheduler = warmup_cosine_scheduler(opt, WARMUP, EPOCHS)
+    print(f"\n{'='*50}")
+    print(f"Train Time: {train_time:.0f}s ({train_time/60:.1f}min)")
+    print(f"Best Val Acc: {best:.4f}")
+    print(f"Params: {n_params:,}")
 
-            best = 0; patience = 0; hist = {'loss':[], 'val_loss':[], 'acc':[]}
-            for epoch in range(1, EPOCHS+1):
-                model.train(); tls = 0
-                for batch in tl:
-                    batch = batch.to(DEVICE); opt.zero_grad()
-                    loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0)
-                    loss.backward(); opt.step()
-                    tls += loss.item() * batch.num_graphs
-                hist['loss'].append(tls / len(tg))
+    # Save model
+    torch.save(model.state_dict(), MODEL_DIR / "model.pt")
+    print(f"Model: {os.path.getsize(MODEL_DIR/'model.pt')/1024:.0f} KB")
 
-                model.eval(); correct, total, vls = 0, 0, 0
-                with torch.no_grad():
-                    for batch in vl:
-                        batch = batch.to(DEVICE)
-                        logits = model(batch)
-                        vls += focal_loss(logits, batch.y, alpha=cw).item() * batch.num_graphs
-                        pred = logits.argmax(dim=1)
-                        correct += (pred == batch.y).sum().item(); total += batch.y.size(0)
-                hist['val_loss'].append(vls / len(vg))
-                acc = correct / max(total, 1); hist['acc'].append(acc)
-
-                if acc > best: best = acc; patience = 0
-                else: patience += 1
-                if epoch % 10 == 0 or epoch == 1:
-                    print(f"    Epoch {epoch:3d} | loss={hist['loss'][-1]:.3f} val_loss={hist['val_loss'][-1]:.3f} acc={acc:.3f} | patience={patience}/50")
-                if patience >= 50: print(f"    Early stop at {epoch}"); break
-                scheduler.step()
-
-            all_fold_accs.append(best)
-            fold_histories.append({'fold': fold_idx+1, 'loss': hist['loss'], 'val_loss': hist['val_loss'], 'acc': hist['acc']})
-            print(f"    Best: {best:.4f}")
-
-        # Final model on all data
-        print(f"\n  Final model on all {len(graphs)} parts...")
-        fm = TriangleGAT(in_dim=graphs[0].x.shape[1], hidden=HIDDEN, heads=HEADS,
-                         n_classes=NC, n_layers=LAYERS, dropout=DROPOUT, edge_dim=EDGE_DIM).to(DEVICE)
-        al = DataLoader(graphs, batch_size=BS, shuffle=True)
-        all_l3 = np.concatenate([g.y.numpy() for g in graphs])
-        cw3 = torch.zeros(NC)
-        for i in range(NC): cw3[i] = (len(all_l3) / max(collections.Counter(all_l3).get(i, 1), 1)) ** 0.5
-        cw3 = cw3.to(DEVICE)
-        opt3 = torch.optim.AdamW(fm.parameters(), lr=LR, weight_decay=1e-4)
-        sc3 = warmup_cosine_scheduler(opt3, WARMUP, EPOCHS)
-        for epoch in range(1, EPOCHS+1):
-            fm.train(); tls, nb = 0, 0
-            for batch in al:
-                batch = batch.to(DEVICE); opt3.zero_grad()
-                loss = focal_loss(fm(batch), batch.y, alpha=cw3, gamma=2.0)
-                loss.backward(); opt3.step()
-            sc3.step()
-        torch.save(fm.state_dict(), MODEL_DIR / f"model_{model_idx}.pt")
-        print(f"  Saved: model_{model_idx}.pt ({os.path.getsize(MODEL_DIR/f'model_{model_idx}.pt')/1024:.0f} KB)")
-
-    # Save log
-    mean_acc = np.mean(all_fold_accs)
-    std_acc = np.std(all_fold_accs)
-    print(f"\n{'='*50}\nENSEMBLE {len(ensemble_seeds)} models, {len(all_fold_accs)} folds\n{'='*50}")
-    print(f"Accs: {[f'{a:.4f}' for a in all_fold_accs]}")
-    print(f"Mean: {mean_acc:.4f}  Std: {std_acc:.4f}")
-
-    log = {"model": "GAT+v3", "k": K, "epochs": EPOCHS, "params": n_params, "batch_size": BS,
-           "ensemble_seeds": ensemble_seeds,
-           "fold_accuracies": [float(a) for a in all_fold_accs],
-           "mean": float(mean_acc), "std": float(std_acc),
-           "fold_histories": fold_histories}
+    log = {"model": "GAT+v3", "epochs": EPOCHS, "params": n_params, "batch_size": BS,
+           "best_val_acc": float(best), "train_time_s": round(train_time, 1),
+           "fold_histories": [{"loss": hist['loss'], "val_loss": hist['val_loss'], "acc": hist['acc']}]}
     with open(MODEL_DIR / "train_log.json", "w") as f: json.dump(log, f, indent=2)
     print("Log saved.")

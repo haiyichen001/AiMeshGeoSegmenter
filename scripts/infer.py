@@ -95,7 +95,7 @@ def merge_regions(faces, normals, pred_labels, angle_deg=15):
 
 def predict_stl(stl_path, model_paths=None, refine=True):
     if model_paths is None:
-        model_paths = [str(ROOT / "models" / f"model_{i}.pt") for i in range(3)]
+        model_paths = [str(ROOT / "models" / "model.pt")]
 
     mesh = trimesh.load(stl_path)
     if isinstance(mesh, trimesh.Scene): mesh = trimesh.util.concatenate(mesh.dump())
