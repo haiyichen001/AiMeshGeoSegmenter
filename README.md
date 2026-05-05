@@ -45,6 +45,34 @@ Why GAT:
 Convexity is detected via `BRepAdaptor_Surface.D1()` exact surface normal at face midpoint.
 All classification is done in a single pass by `label_faces.py`.
 
+## Model Input (36-dim per-triangle features)
+
+| # | Feature | Category |
+|---|---------|----------|
+| 0-2 | Normal vector (nx, ny, nz) | Geometry |
+| 3-5 | Fourier position encoding (x: sin/cos πx·2πx) | Position |
+| 6-8 | Fourier position encoding (y) | Position |
+| 9-11 | Fourier position encoding (z) | Position |
+| 12 | log10(area) | Scale |
+| 13 | Neighbor normal variance | 1-hop |
+| 14 | Mean dihedral angle | 1-hop |
+| 15 | Max dihedral angle | 1-hop |
+| 16 | Compactness | Shape |
+| 17 | Edge length ratio | Shape |
+| 18 | Vertex normal std | Curvature |
+| 19-24 | Fourier position encoding (3π) | Position |
+| 25 | log(total triangles) | Part-level |
+| 26-28 | Part elongation (X/Y/Z axis ratio) | Part-level |
+| 29-30 | 2-hop mean/std dihedral | Multi-scale |
+| 31-32 | 2-hop mean/std area ratio | Multi-scale |
+| 33-35 | 4-hop mean/std dihedral + area | Multi-scale |
+
+Edge features (3-dim): dihedral angle, relative edge length, normal-direction sign.
+
+Model: 3-layer GAT (192 hidden, 4 heads, 695K params) with edge features, SWA, Focal Loss.
+
+## Training Data
+
 ## Training Data
 
 ```

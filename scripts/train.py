@@ -223,10 +223,26 @@ if __name__ == "__main__":
     import torch, sys, argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--top2000", action="store_true")
-    parser.add_argument("--cache", action="store_true")
+    parser.add_argument("--hidden", type=int, default=HIDDEN)
+    parser.add_argument("--layers", type=int, default=LAYERS)
+    parser.add_argument("--heads", type=int, default=HEADS)
+    parser.add_argument("--dropout", type=float, default=DROPOUT)
+    parser.add_argument("--lr", type=float, default=LR)
+    parser.add_argument("--feat", type=str, default="14", help="14|20|24|36")
+    parser.add_argument("--no_swa", action="store_true")
+    parser.add_argument("--no_edge", action="store_true")
     args = parser.parse_args()
+    HIDDEN = args.hidden; LAYERS = args.layers; HEADS = args.heads
+    DROPOUT = args.dropout; LR = args.lr
+    EDGE_DIM = 0 if args.no_edge else 3
 
-    CACHE = ROOT / "data" / "graphs_20k.pt"
+    CACHE = ROOT / "data" / ("graphs_2k.pt" if args.top2000 else "graphs_20k.pt")
+    # Feature set selection (prune from 36-dim cache)
+    FEAT_14 = [0,1,2, 15,16,17,18, 19,20, 21, 30,35, 26,27]  # normals + basic + 2hop
+    FEAT_SETS = {"14": FEAT_14, "20": list(range(20)), "26": list(range(26))}
+    feat_idx = FEAT_SETS.get(args.feat, list(range(36)))
+    IN_DIM = len(feat_idx)
+    print(f"Feature set: {args.feat} ({IN_DIM} dims)")
     # Redirect stdout to both log file and stderr for real-time output
     class TeeIO:
         def __init__(self, f1, f2): self.f1 = f1; self.f2 = f2
@@ -241,6 +257,9 @@ if __name__ == "__main__":
         graphs = torch.load(CACHE, map_location='cpu', weights_only=False)
         random.seed(42); random.shuffle(graphs)
         print(f"Loaded {len(graphs)} graphs in {time.time()-t1:.0f}s")
+        # Prune features
+        if IN_DIM < 36:
+            for g in graphs: g.x = g.x[:, feat_idx].contiguous()
     elif args.top2000:
         import json
         with open(ROOT / "data" / "top2000.json") as f:
@@ -273,9 +292,9 @@ if __name__ == "__main__":
 
     # Move all graphs to GPU, stay there forever
     print("Moving graphs to GPU...")
-    for g in tg: g.to(DEVICE)
-    for g in vg: g.to(DEVICE)
-    for g in test_g: g.to(DEVICE)
+    tg = [g.to(DEVICE) for g in tg]
+    vg = [g.to(DEVICE) for g in vg]
+    test_g = [g.to(DEVICE) for g in test_g]
     print(f"All {n_total} graphs on GPU.")
 
     all_l = np.concatenate([g.y.cpu().numpy() for g in tg])

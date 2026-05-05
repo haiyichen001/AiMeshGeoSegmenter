@@ -17,7 +17,7 @@ COLORS = {"plane":"#4db8ff","cylinder":"#44cc44","sphere":"#ff44ff","cone":"#ff8
           "torus":"#ffcc00","freeform":"#888888"}
 
 class TriangleGAT(nn.Module):
-    def __init__(self, in_dim=14, hidden=192, heads=4, n_classes=6, n_layers=3, dropout=0.3, edge_dim=3):
+    def __init__(self, in_dim=36, hidden=192, heads=4, n_classes=6, n_layers=3, dropout=0.3, edge_dim=3):
         super().__init__()
         self.convs = nn.ModuleList(); self.norms = nn.ModuleList()
         ch = [in_dim] + [hidden*heads]*n_layers
