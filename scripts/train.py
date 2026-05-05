@@ -205,6 +205,7 @@ if __name__ == "__main__":
     scheduler = warmup_cosine_scheduler(opt, WARMUP, EPOCHS)
 
     best = 0; patience = 0; hist = {'loss':[], 'val_loss':[], 'acc':[]}
+    swa_weights = []  # SWA: collect snapshots in the stable zone
     train_start = time.time()
     for epoch in range(1, EPOCHS+1):
         model.train(); tls = 0
@@ -228,18 +229,31 @@ if __name__ == "__main__":
 
         if acc > best: best = acc; patience = 0
         else: patience += 1
+        # SWA: collect weight snapshots when within 5% of best
+        if acc >= best * 0.95 and epoch > WARMUP:
+            swa_weights.append({k: v.cpu().clone() for k, v in model.state_dict().items()})
         if epoch % 10 == 0 or epoch == 1:
             print(f"  Epoch {epoch:3d} | loss={hist['loss'][-1]:.3f} val_loss={hist['val_loss'][-1]:.3f} acc={acc:.3f} | patience={patience}/50")
         if patience >= 50: print(f"  Early stop at {epoch}"); break
         scheduler.step()
     train_time = time.time() - train_start
 
+    # SWA: average collected weights
+    if swa_weights:
+        swa_state = {}
+        for key in swa_weights[0]:
+            swa_state[key] = sum(w[key] for w in swa_weights) / len(swa_weights)
+        model.load_state_dict(swa_state)
+        print(f"SWA: averaged {len(swa_weights)} snapshots")
+    else:
+        print("SWA: no snapshots collected, using best model")
+
     print(f"\n{'='*50}")
     print(f"Train Time: {train_time:.0f}s ({train_time/60:.1f}min)")
     print(f"Best Val Acc: {best:.4f}")
     print(f"Params: {n_params:,}")
 
-    # Test set evaluation
+    # Test set evaluation (SWA model)
     model.eval(); correct, total = 0, 0
     with torch.no_grad():
         for batch in DataLoader(test_g, batch_size=BS*2, shuffle=False):
@@ -248,13 +262,13 @@ if __name__ == "__main__":
             correct += (pred == batch.y).sum().item()
             total += batch.y.size(0)
     test_acc = correct / max(total, 1)
-    print(f"Test Acc: {test_acc:.4f}")
+    print(f"Test Acc (SWA): {test_acc:.4f}")
 
     # Save model
     torch.save(model.state_dict(), MODEL_DIR / "model.pt")
     print(f"Model: {os.path.getsize(MODEL_DIR/'model.pt')/1024:.0f} KB")
 
-    log = {"model": "GAT+v3", "epochs": EPOCHS, "params": n_params, "batch_size": BS,
+    log = {"model": "GAT+v3+SWA", "epochs": EPOCHS, "params": n_params, "batch_size": BS,
            "best_val_acc": float(best), "test_acc": float(test_acc),
            "train_time_s": round(train_time, 1),
            "fold_histories": [{"loss": hist['loss'], "val_loss": hist['val_loss'], "acc": hist['acc']}]}
