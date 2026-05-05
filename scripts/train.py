@@ -105,7 +105,7 @@ def load_part(fp):
 if __name__ == "__main__":
     files = sorted(DATA_DIR.glob("*.npz"))
     random.seed(42); random.shuffle(files)
-    files = files[:5000]
+    files = files[:2000]
     print(f"Loading {len(files)} parts..."); t0=time.time()
     graphs = [load_part(f) for f in files]
     print(f"Loaded in {time.time()-t0:.0f}s")
