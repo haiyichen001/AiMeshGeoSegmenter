@@ -174,16 +174,34 @@ def warmup_cosine_scheduler(optimizer, warmup_epochs, total_epochs):
 
 
 if __name__ == "__main__":
-    import torch
-    files = sorted(DATA_DIR.glob("*.npz"))
-    random.seed(42); random.shuffle(files); files = files[:2000]
-    print(f"Loading {len(files)} parts..."); t1=time.time()
-    graphs = [load_part(f) for f in files]
-    print(f"Loaded in {time.time()-t1:.0f}s")
+    import torch, sys
+    # Tee stdout to log file for background runs
+    log_file = open(MODEL_DIR / "train.log", "w", encoding="utf-8")
+    class Tee:
+        def __init__(self, *files): self.files = files
+        def write(self, s):
+            for f in self.files: f.write(s); f.flush()
+        def flush(self):
+            for f in self.files: f.flush()
+    sys.stdout = Tee(sys.stdout, log_file)
+
+    CACHE = ROOT / "data" / "graphs_20k.pt"
+    if CACHE.exists():
+        print(f"Loading from cache: {CACHE.name} ({CACHE.stat().st_size/1024/1024:.0f} MB)..."); t1=time.time()
+        graphs = torch.load(CACHE, map_location='cpu', weights_only=False)
+        random.seed(42); random.shuffle(graphs)
+        print(f"Loaded {len(graphs)} graphs in {time.time()-t1:.0f}s")
+    else:
+        files = sorted(DATA_DIR.glob("*.npz"))
+        random.seed(42); random.shuffle(files)
+        print(f"Loading {len(files)} parts..."); t1=time.time()
+        graphs = [load_part(f) for f in files]
+        print(f"Loaded in {time.time()-t1:.0f}s")
 
     # 70/15/15 train/val/test split
-    n_train = int(len(files) * 0.7)
-    n_val = int(len(files) * 0.15)
+    n_total = len(graphs)
+    n_train = int(n_total * 0.7)
+    n_val = int(n_total * 0.15)
     tg = graphs[:n_train]
     vg = graphs[n_train:n_train + n_val]
     test_g = graphs[n_train + n_val:]

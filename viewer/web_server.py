@@ -29,6 +29,19 @@ def api_model_log(name):
     with open(path) as f:
         return jsonify(json.load(f))
 
+
+@app.route("/api/train_log")
+def api_train_log():
+    path = DATA / "models" / "train.log"
+    if not path.exists():
+        return jsonify({"lines": [], "running": False})
+    with open(path) as f:
+        lines = f.readlines()
+    # Return last 50 lines
+    recent = [l.rstrip() for l in lines[-50:]]
+    running = "Test Acc" not in "".join(recent) and "Log saved" not in "".join(recent)
+    return jsonify({"lines": recent, "running": running})
+
 # STEP shape cache
 _shape_cache = {}
 

@@ -19,7 +19,7 @@ body { overflow-y: auto; }
   <a href="/">Compare</a><a href="/labels">Labels</a>
   <a href="/model" class="active">Model</a><a href="/infer">Infer</a>
 </div>
-<div class="dashboard" id="root"><div class="nodata">Loading training data...</div></div>
+<div class="dashboard" id="root"><div class="nodata">Loading training data...</div><div id="train-log" style="max-width:1000px;margin:0 auto"></div></div>
 <script>
 const COLORS = ['#06b6d4','#f59e0b','#22c55e','#ef4444','#8b5cf6','#ec4899'];
 const DARK = getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary').trim() || '#121212';
@@ -160,5 +160,17 @@ function render(log) {
   try { const r = await fetch('/api/model_log/gat');
     document.getElementById('root').innerHTML = render(r.ok ? await r.json() : null);
   } catch { document.getElementById('root').innerHTML = '<div class="nodata">Failed to load training data.</div>'; }
+  // Auto-refresh training log
+  async function loadLog() {
+    try {
+      const r = await fetch('/api/train_log'); const d = await r.json();
+      const el = document.getElementById('train-log');
+      if (d.lines.length > 0) {
+        el.innerHTML = '<div style="font-size:13px;color:'+getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()+'">Training Log (live)</div><pre style="background:var(--bg-tertiary);color:var(--text-secondary);padding:10px;border-radius:var(--radius-sm);font-size:11px;max-height:300px;overflow-y:auto;margin:8px 0;white-space:pre-wrap">'+d.lines.join('\n')+'</pre>';
+      }
+      if (d.running) setTimeout(loadLog, 3000);
+    } catch {}
+  }
+  loadLog();
 })();
 </script></body></html>
