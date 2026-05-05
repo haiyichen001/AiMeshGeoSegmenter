@@ -23,6 +23,8 @@ if DEVICE.type == 'cuda':
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
     torch.set_float32_matmul_precision('high')
+    # AMP mixed precision
+    scaler = torch.amp.GradScaler('cuda')
     # Strict: no shared GPU memory. Monitor peak, hard-limit batch size.
     vram_total = torch.cuda.get_device_properties(0).total_memory
     VRAM_LIMIT = int(vram_total * 0.85)  # 85% hard ceiling
@@ -57,17 +59,45 @@ class TriangleGAT(nn.Module):
             self.convs.append(GATConv(ch[i], oh, heads=h, dropout=dropout, edge_dim=edge_dim))
             if i < n_layers-1: self.norms.append(nn.BatchNorm1d(oh*h))
         self.dropout = nn.Dropout(dropout)
-        self.mlp = nn.Sequential(nn.Linear(hidden//2,64),nn.ReLU(),nn.Dropout(dropout),nn.Linear(64,n_classes))
+        # JK: compute actual output dims for each layer
+        jk_dim = in_dim
+        oh = in_dim
+        for i in range(n_layers):
+            h = heads if i < n_layers-1 else 1
+            out = (hidden if i < n_layers-1 else hidden//2) * h
+            jk_dim += out; oh = out
+        self.mlp = nn.Sequential(nn.Linear(jk_dim, 128), nn.ReLU(), nn.Dropout(dropout),
+                                 nn.Linear(128, 64), nn.ReLU(), nn.Dropout(dropout),
+                                 nn.Linear(64, n_classes))
+        self.drop_edge_prob = 0.15  # DropEdge during training
+
     def forward(self, data):
-        x,ei,ea = data.x, data.edge_index, data.edge_attr
-        ei,_ = add_self_loops(ei, num_nodes=x.size(0))
-        # self-loops need zero edge features
+        x, ei, ea = data.x, data.edge_index, data.edge_attr
         n_self = x.size(0)
         ea_full = torch.cat([ea, torch.zeros(n_self, ea.size(1), device=x.device)], dim=0)
-        for i,conv in enumerate(self.convs):
-            x = conv(x, ei, ea_full)
+        all_x = [x]
+
+        for i, conv in enumerate(self.convs):
+            # DropEdge: randomly drop edges during training
+            if self.training and self.drop_edge_prob > 0:
+                n_edges = ei.size(1)
+                mask = torch.rand(n_edges, device=ei.device) > self.drop_edge_prob
+                ei_drop = ei[:, mask]
+                # Re-add self loops after dropping
+                ei_drop, _ = add_self_loops(ei_drop, num_nodes=n_self)
+                # Remap edge_attr: dropped edges need zero features for self-loops
+                ea_drop = torch.cat([ea[mask], torch.zeros(n_self, ea.size(1), device=x.device)], dim=0)
+                x = conv(x, ei_drop, ea_drop)
+            else:
+                ei_full, _ = add_self_loops(ei, num_nodes=n_self)
+                ea_all = torch.cat([ea, torch.zeros(n_self, ea.size(1), device=x.device)], dim=0)
+                x = conv(x, ei_full, ea_all)
             if i < len(self.norms): x = self.norms[i](x); x = F.elu(x); x = self.dropout(x)
-        return F.log_softmax(self.mlp(x), dim=-1)
+            all_x.append(x)
+
+        # Jumping Knowledge: concat all layer outputs
+        x_cat = torch.cat(all_x, dim=-1)
+        return F.log_softmax(self.mlp(x_cat), dim=-1)
 
 
 def auto_batch(model, graphs):
@@ -316,13 +346,16 @@ if __name__ == "__main__":
             idx = perm[i:i+BS].tolist()
             batch = Batch.from_data_list([tg[j] for j in idx])
             opt.zero_grad()
-            loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0)
-            loss.backward(); opt.step()
+            with torch.amp.autocast('cuda'):
+                loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0)
+            scaler.scale(loss).backward()
+            scaler.step(opt)
+            scaler.update()
             tls += loss.item() * len(idx)
         hist['loss'].append(tls / n_train)
 
         model.eval(); correct, total, vls = 0, 0, 0
-        with torch.no_grad():
+        with torch.no_grad(), torch.amp.autocast('cuda'):
             for i in range(0, n_val, BS*2):
                 idx = list(range(i, min(i+BS*2, n_val)))
                 batch = Batch.from_data_list([vg[j] for j in idx])
@@ -360,7 +393,7 @@ if __name__ == "__main__":
     # Test set evaluation (SWA model)
     model.eval(); correct, total = 0, 0
     n_test = len(test_g)
-    with torch.no_grad():
+    with torch.no_grad(), torch.amp.autocast('cuda'):
         for i in range(0, n_test, BS*2):
             idx = list(range(i, min(i+BS*2, n_test)))
             batch = Batch.from_data_list([test_g[j] for j in idx])

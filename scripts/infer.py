@@ -27,16 +27,27 @@ class TriangleGAT(nn.Module):
             self.convs.append(GATConv(ch[i], oh, heads=h, dropout=dropout, edge_dim=edge_dim))
             if i < n_layers-1: self.norms.append(nn.BatchNorm1d(oh*h))
         self.dropout = nn.Dropout(dropout)
-        self.mlp = nn.Sequential(nn.Linear(hidden//2,64),nn.ReLU(),nn.Dropout(dropout),nn.Linear(64,n_classes))
+        jk_dim = in_dim
+        oh = in_dim
+        for i in range(n_layers):
+            h = heads if i < n_layers-1 else 1
+            out = (hidden if i < n_layers-1 else hidden//2) * h
+            jk_dim += out; oh = out
+        self.mlp = nn.Sequential(nn.Linear(jk_dim, 128), nn.ReLU(), nn.Dropout(dropout),
+                                 nn.Linear(128, 64), nn.ReLU(), nn.Dropout(dropout),
+                                 nn.Linear(64, n_classes))
     def forward(self, data):
         x,ei,ea = data.x, data.edge_index, data.edge_attr
-        ei,_ = add_self_loops(ei, num_nodes=x.size(0))
         n_self = x.size(0)
+        ei,_ = add_self_loops(ei, num_nodes=n_self)
         ea_full = torch.cat([ea, torch.zeros(n_self, ea.size(1), device=x.device)], dim=0)
+        all_x = [x]
         for i,conv in enumerate(self.convs):
             x = conv(x, ei, ea_full)
             if i < len(self.norms): x = self.norms[i](x); x = F.elu(x); x = self.dropout(x)
-        return F.log_softmax(self.mlp(x), dim=-1)
+            all_x.append(x)
+        x_cat = torch.cat(all_x, dim=-1)
+        return F.log_softmax(self.mlp(x_cat), dim=-1)
 
 
 def merge_regions(faces, normals, pred_labels, angle_deg=15):

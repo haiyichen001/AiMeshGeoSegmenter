@@ -10,19 +10,15 @@ RESULTS = ROOT / "models" / "sweep_results.json"
 
 experiments = [
     # (name, feat, hidden, layers, heads, lr)
-    ("v14_h192_l3",   "14", 192, 3, 4, 0.002),   # baseline
-    ("v14_h256_l3",   "14", 256, 3, 4, 0.002),   # wider
-    ("v14_h192_l4",   "14", 192, 4, 4, 0.002),   # deeper
-    ("v14_h128_l3",   "14", 128, 3, 4, 0.002),   # compact
-    ("v14_h128_l4",   "14", 128, 4, 4, 0.002),   # compact deeper
-    ("v14_lr001",     "14", 192, 3, 4, 0.001),   # lower lr
-    ("v14_lr003",     "14", 192, 3, 4, 0.003),   # higher lr
-    ("v20_h192_l3",   "20", 192, 3, 4, 0.002),   # +fourier 6dim
-    ("v20_h256_l3",   "20", 256, 3, 4, 0.002),
-    ("v20_h192_l4",   "20", 192, 4, 4, 0.002),
-    ("v26_h192_l3",   "26", 192, 3, 4, 0.002),   # +fourier 12dim
-    ("v26_h256_l3",   "26", 256, 3, 4, 0.002),
-    ("v26_h192_l4",   "26", 192, 4, 4, 0.002),
+    ("baseline",      "14", 192, 3, 4, 0.002),   # baseline for comparison
+    ("v26_base",      "26", 192, 3, 4, 0.002),   # best from v1 sweep
+    ("v26_jk",        "26", 192, 3, 4, 0.002),   # JK (already on by default now)
+    ("v26_deep",      "26", 192, 4, 4, 0.002),   # deeper + JK
+    ("v26_deep256",   "26", 256, 4, 4, 0.002),   # wider + deeper + JK
+    ("v26_amp_wide",  "26", 320, 3, 4, 0.002),   # AMP enables bigger hidden
+    ("v26_amp_deep",  "26", 256, 4, 4, 0.002),   # deeper with AMP
+    ("v14_jk",        "14", 192, 3, 4, 0.002),   # JK on baseline
+    ("v14_jk_deep",   "14", 192, 4, 4, 0.002),   # JK + deeper
 ]
 
 results = []
