@@ -34,13 +34,22 @@ def api_model_log(name):
 def api_train_log():
     path = DATA / "models" / "train.log"
     if not path.exists():
-        return jsonify({"lines": [], "running": False})
+        return jsonify({"lines": [], "running": False, "metrics": None})
     with open(path) as f:
-        lines = f.readlines()
-    # Return last 50 lines
-    recent = [l.rstrip() for l in lines[-50:]]
+        lines = [l.rstrip() for l in f.readlines()]
+    recent = lines[-50:]
     running = "Test Acc" not in "".join(recent) and "Log saved" not in "".join(recent)
-    return jsonify({"lines": recent, "running": running})
+    # Parse metrics from log lines
+    import re
+    loss_series, val_loss_series, acc_series = [], [], []
+    for line in lines:
+        m = re.search(r'Epoch\s+\d+\s*\|\s*loss=([\d.]+)\s+val_loss=([\d.]+)\s+acc=([\d.]+)', line)
+        if m:
+            loss_series.append(float(m.group(1)))
+            val_loss_series.append(float(m.group(2)))
+            acc_series.append(float(m.group(3)))
+    metrics = {"epochs": len(loss_series), "loss": loss_series, "val_loss": val_loss_series, "acc": acc_series}
+    return jsonify({"lines": recent, "running": running, "metrics": metrics})
 
 # STEP shape cache
 _shape_cache = {}
