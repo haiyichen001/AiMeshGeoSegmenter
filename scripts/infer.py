@@ -36,7 +36,61 @@ class TriangleGAT(nn.Module):
         return F.log_softmax(self.mlp(x), dim=-1)
 
 
-def predict_stl(stl_path, model_path=None):
+def merge_regions(faces, normals, pred_labels, angle_deg=15):
+    """Region growing + majority vote: clean per-triangle predictions.
+
+    1. Merge adjacent triangles into regions based on normal angle < angle_deg.
+    2. Within each region, majority vote on predicted labels -> assign to all.
+    Returns cleaned per-triangle label array.
+    """
+    import trimesh
+    m = trimesh.Trimesh(vertices=np.zeros((faces.max()+1, 3), dtype=np.float32),
+                        faces=faces, process=False)
+    adj = m.face_adjacency
+
+    # Build adjacency list
+    nbrs = [[] for _ in range(len(faces))]
+    for a, b in adj:
+        nbrs[a].append(b)
+        nbrs[b].append(a)
+
+    visited = np.zeros(len(faces), dtype=bool)
+    regions = []  # list of (triangle_indices, label_counts)
+
+    for seed in range(len(faces)):
+        if visited[seed]:
+            continue
+        # Region growing via BFS
+        region = [seed]
+        visited[seed] = True
+        head = 0
+        while head < len(region):
+            ti = region[head]; head += 1
+            for nb in nbrs[ti]:
+                if visited[nb]:
+                    continue
+                # Check normal angle between current and neighbor
+                dot = min(1.0, max(0.0, abs(np.dot(normals[ti], normals[nb]))))
+                ang = float(np.arccos(dot) * 180 / np.pi)
+                if ang < angle_deg:
+                    visited[nb] = True
+                    region.append(nb)
+
+        # Majority vote within region
+        labels_in_region = pred_labels[region]
+        counts = np.bincount(labels_in_region, minlength=8)
+        majority = int(np.argmax(counts))
+        regions.append((region, majority))
+
+    # Assign cleaned labels
+    cleaned = pred_labels.copy()
+    for region, label in regions:
+        cleaned[region] = label
+
+    return cleaned
+
+
+def predict_stl(stl_path, model_path=None, refine=True):
     model_path = model_path or str(ROOT / "models" / "model.pt")
     model = TriangleGAT(in_dim=10)
     model.load_state_dict(torch.load(model_path, map_location='cpu', weights_only=False))
@@ -68,6 +122,10 @@ def predict_stl(stl_path, model_path=None):
 
     with torch.no_grad():
         pred = model(data).argmax(dim=1).numpy()
+
+    # Post-processing: region growing + voting
+    if refine:
+        pred = merge_regions(faces, normals, pred)
 
     # Group by predicted label -> patches for visualization
     faces_out = []
