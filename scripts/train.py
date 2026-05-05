@@ -181,10 +181,13 @@ if __name__ == "__main__":
     graphs = [load_part(f) for f in files]
     print(f"Loaded in {time.time()-t1:.0f}s")
 
-    # 80/20 train/val split
-    n_train = int(len(files) * 0.8)
-    tg = graphs[:n_train]; vg = graphs[n_train:]
-    print(f"Train: {len(tg)}, Val: {len(vg)}")
+    # 70/15/15 train/val/test split
+    n_train = int(len(files) * 0.7)
+    n_val = int(len(files) * 0.15)
+    tg = graphs[:n_train]
+    vg = graphs[n_train:n_train + n_val]
+    test_g = graphs[n_train + n_val:]
+    print(f"Train: {len(tg)}, Val: {len(vg)}, Test: {len(test_g)}")
 
     model = TriangleGAT(in_dim=graphs[0].x.shape[1], hidden=HIDDEN, heads=HEADS,
                         n_classes=NC, n_layers=LAYERS, dropout=DROPOUT, edge_dim=EDGE_DIM).to(DEVICE)
@@ -236,12 +239,24 @@ if __name__ == "__main__":
     print(f"Best Val Acc: {best:.4f}")
     print(f"Params: {n_params:,}")
 
+    # Test set evaluation
+    model.eval(); correct, total = 0, 0
+    with torch.no_grad():
+        for batch in DataLoader(test_g, batch_size=BS*2, shuffle=False):
+            batch = batch.to(DEVICE)
+            pred = model(batch).argmax(dim=1)
+            correct += (pred == batch.y).sum().item()
+            total += batch.y.size(0)
+    test_acc = correct / max(total, 1)
+    print(f"Test Acc: {test_acc:.4f}")
+
     # Save model
     torch.save(model.state_dict(), MODEL_DIR / "model.pt")
     print(f"Model: {os.path.getsize(MODEL_DIR/'model.pt')/1024:.0f} KB")
 
     log = {"model": "GAT+v3", "epochs": EPOCHS, "params": n_params, "batch_size": BS,
-           "best_val_acc": float(best), "train_time_s": round(train_time, 1),
+           "best_val_acc": float(best), "test_acc": float(test_acc),
+           "train_time_s": round(train_time, 1),
            "fold_histories": [{"loss": hist['loss'], "val_loss": hist['val_loss'], "acc": hist['acc']}]}
     with open(MODEL_DIR / "train_log.json", "w") as f: json.dump(log, f, indent=2)
     print("Log saved.")

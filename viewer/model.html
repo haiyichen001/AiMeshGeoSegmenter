@@ -90,6 +90,7 @@ function render(log) {
   h += `<div class="metric"><div class="val">${log.epochs||'?'}</div><div class="label">Epochs</div></div>`;
   h += `<div class="metric"><div class="val">${log.params||'?'}</div><div class="label">Params</div></div>`;
   if (log.batch_size) h += `<div class="metric"><div class="val">${log.batch_size}</div><div class="label">Batch</div></div>`;
+  if (log.test_acc != null) h += `<div class="metric"><div class="val">${(log.test_acc*100).toFixed(2)}%</div><div class="label">Test Acc</div></div>`;
   h += '</div>';
 
   // Fold accuracy bars
