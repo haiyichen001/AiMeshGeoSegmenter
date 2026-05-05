@@ -348,46 +348,15 @@ def process_one(step_path):
 
         diagonal = float(np.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2))
 
-        # --- Refinement: fillet / chamfer / sphere recovery ---
-        face_by_id = {f["id"]: f for f in faces_data}
+        # --- Sphere recovery: fit sphere to freeform faces ---
         label_dist = collections.Counter()
-
         for f in faces_data:
             occ = f["occ_type"]
-            nbrs = f.get("neighbors", [])
-            nn = len(nbrs)
-            area = f.get("area", 0)
-            radius = f.get("radius", 0)
-            cone_half = f.get("cone_half_len", 0)
-            is_convex = f.get("is_convex", True)
-
-            # Fillet: Cylinder/Torus + 2 neighbors + radius < 10% + convex
-            if occ in ("Cylinder", "Torus") and nn == 2 and radius > 0 and radius < diagonal * RADIUS_RATIO and is_convex:
-                f["label"] = "fillet"; label_dist["fillet"] += 1; continue
-
-            # Chamfer: Cone + 2 neighbors + half-len < 10% + 85-95 deg + convex
-            if occ == "Cone" and nn == 2 and cone_half > 0 and cone_half < diagonal * RADIUS_RATIO and is_convex:
-                nbr_angle = angle_between_faces(face_by_id.get(nbrs[0], {}), face_by_id.get(nbrs[1], {}))
-                if nbr_angle is not None and 85 < nbr_angle < 95:
-                    f["label"] = "chamfer"; label_dist["chamfer"] += 1; continue
-
-            # Chamfer: Plane + 2 neighbors + half-len < 10% + 85-95 deg + convex
-            if occ == "Plane" and nn == 2 and is_convex:
-                plane_half = np.sqrt(max(area, 1e-6)) / 2.0
-                if plane_half < diagonal * RADIUS_RATIO:
-                    nbr_angle = angle_between_faces(face_by_id.get(nbrs[0], {}), face_by_id.get(nbrs[1], {}))
-                    if nbr_angle is not None and 85 < nbr_angle < 95:
-                        f["label"] = "chamfer"; label_dist["chamfer"] += 1; continue
-
-            # Sphere recovery: fit sphere to freeform faces
             if f["label"] == "freeform" or occ in ("Bezier", "BSpline", "Revolution", "Extrusion", "Other"):
                 verts = f.get("vertices", [])
                 ok_sp, c_sp, r_sp, rel_err = try_fit_sphere(verts)
                 if ok_sp and rel_err < SPHERE_FIT_TOL:
                     f["label"] = "sphere"; label_dist["sphere"] += 1; continue
-
-            # Default: keep OCCT-derived label
-            if occ in ("Bezier", "BSpline", "Revolution", "Extrusion", "Other"):
                 f["label"] = "freeform"; label_dist["freeform"] += 1
             else:
                 label_dist[f["label"]] += 1

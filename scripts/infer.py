@@ -1,5 +1,5 @@
 """
-GAT 推理: STL -> per-triangle 8 类标签
+GAT 推理: STL -> per-triangle 6 类标签
 """
 import sys, json, numpy as np, trimesh
 from pathlib import Path
@@ -12,9 +12,9 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch_geometric.nn import GATConv
 
-LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","fillet","chamfer","freeform"]
+LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","freeform"]
 COLORS = {"plane":"#4db8ff","cylinder":"#44cc44","sphere":"#ff44ff","cone":"#ff8844",
-          "torus":"#ffcc00","fillet":"#00cccc","chamfer":"#ff6644","freeform":"#888888"}
+          "torus":"#ffcc00","freeform":"#888888"}
 
 class TriangleGAT(nn.Module):
     def __init__(self, in_dim=10, hidden=128, heads=4, n_classes=8, n_layers=3, dropout=0.3):

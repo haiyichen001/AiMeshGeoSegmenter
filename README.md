@@ -22,7 +22,7 @@ GAT (3 layers, ~200K params)
   | Attention-weighted message passing on triangle adjacency graph
   |
   v
-Per-triangle 8-class label (plane/cylinder/sphere/cone/torus/fillet/chamfer/freeform)
+Per-triangle 6-class label (plane/cylinder/sphere/cone/torus/freeform)
 ```
 
 Why GAT:
@@ -31,24 +31,19 @@ Why GAT:
 - Single model, no domain mismatch between training and inference
 - ~200K params, GPU training, CPU inference capable
 
-## 8 Output Classes
+## 6 Output Classes
 
 | # | Class | Detection |
 |---|-------|-----------|
-| 1 | Plane | GeomAbs_Plane, not chamfer |
-| 2 | Cylinder | GeomAbs_Cylinder, not fillet |
+| 1 | Plane | GeomAbs_Plane |
+| 2 | Cylinder | GeomAbs_Cylinder |
 | 3 | Sphere | GeomAbs_Sphere + BSpline least-squares recovery (error < 2%) |
-| 4 | Cone | GeomAbs_Cone, not chamfer |
-| 5 | Torus | GeomAbs_Torus, not fillet |
-| 6 | Fillet | Cylinder: 2 neighbors + radius < 10% diagonal + convex only |
-|   |        | Torus: 2 neighbors + minor radius < 10% diagonal + convex only |
-| 7 | Chamfer | Cone: 2 neighbors + half-length < 10% + angle 85-95 deg + convex only |
-|   |         | Plane: 2 neighbors + half-length < 10% + angle 85-95 deg + convex only |
-|   |         | Angle: uses axis direction for curved faces (Cylinder/Torus/Cone) instead of vertex normals |
-| 8 | Freeform | Everything else (BSpline, Bezier, Revolution, Extrusion) |
+| 4 | Cone | GeomAbs_Cone |
+| 5 | Torus | GeomAbs_Torus |
+| 6 | Freeform | Everything else (BSpline, Bezier, Revolution, Extrusion) |
 
 Convexity is detected via `BRepAdaptor_Surface.D1()` exact surface normal at face midpoint.
-All classification (type mapping + fillet/chamfer/sphere refinement) is done in a single pass by `label_faces.py`.
+All classification is done in a single pass by `label_faces.py`.
 
 ## Training Data
 

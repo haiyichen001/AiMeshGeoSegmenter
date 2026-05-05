@@ -45,11 +45,10 @@ def get_shape(part):
         _shape_cache[part] = sr.OneShape()
     return _shape_cache[part]
 
-# 8-class color map
+# 6-class color map
 COLORS = {
     "plane": "#4db8ff", "cylinder": "#44cc44", "sphere": "#ff44ff",
-    "cone": "#ff8844", "torus": "#ffcc00", "fillet": "#00cccc",
-    "chamfer": "#ff6644", "freeform": "#888888",
+    "cone": "#ff8844", "torus": "#ffcc00", "freeform": "#888888",
 }
 
 @app.route("/theme.css")

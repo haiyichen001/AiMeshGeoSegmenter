@@ -12,7 +12,7 @@ from sklearn.model_selection import KFold
 ROOT = Path(r"D:\AiMeshGeoSegmenter"); DATA_DIR = ROOT/"data"/"patches"; MODEL_DIR = ROOT/"models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","fillet","chamfer","freeform"]
+LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","freeform"]
 NC, K, EPOCHS = len(LABEL_NAMES), 3, 250
 HIDDEN, HEADS, LAYERS, DROPOUT = 128, 4, 3, 0.3
 

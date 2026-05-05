@@ -29,7 +29,7 @@ from OCC.Core.TopTools import TopTools_IndexedMapOfShape
 from OCC.Core.gp import gp_Pnt, gp_Vec
 from OCC.Core.BRepClass3d import BRepClass3d_SolidClassifier
 
-LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","fillet","chamfer","freeform"]
+LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","freeform"]
 L2I = {n:i for i,n in enumerate(LABEL_NAMES)}
 O2B = {GeomAbs_Plane:"plane",GeomAbs_Cylinder:"cylinder",GeomAbs_Cone:"cone",
        GeomAbs_Sphere:"sphere",GeomAbs_Torus:"torus",
@@ -197,20 +197,6 @@ def process_one(step_path):
             except:
                 pass
 
-            # Fillet: Cylinder/Torus + 2 neighbors + radius < 10% + convex
-            if occ in (GeomAbs_Cylinder,GeomAbs_Torus) and nn==2:
-                if radius>0 and radius<diag*0.10 and is_convex:
-                    base="fillet"
-            # Chamfer (Cone): 2 neighbors + half-length < 10% + angle 85-95 + convex
-            if occ==GeomAbs_Cone and nn==2:
-                if cone_half>0 and cone_half<diag*0.10 and is_convex:
-                    if nbr_angle is not None and 85<nbr_angle<95:
-                        base="chamfer"
-            # Chamfer (Plane): 2 neighbors + half-length < 10% + angle 85-95 + convex
-            if occ==GeomAbs_Plane and nn==2:
-                plane_half = np.sqrt(max(face_areas[i], 1e-6)) / 2.0
-                if plane_half < diag*0.10 and nbr_angle is not None and 85<nbr_angle<95 and is_convex:
-                    base="chamfer"
             # Sphere recovery from BSpline
             if base=="freeform":
                 loc=TopLoc_Location(); tri=BRep_Tool().Triangulation(fm.FindKey(i),loc)
