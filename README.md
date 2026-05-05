@@ -118,11 +118,23 @@ AiMeshGeoSegmenter/
 
 当前基线：单模型 80/20 分割，2000 样本，供快速迭代。后期突破时堆上述手段即可。
 
+## Best Configuration (2K samples, sweep results)
+
+| Rank | Config | Test Acc | Time |
+|------|--------|----------|------|
+| 1 | 26-dim + 3-layer + JK | **83.04%** | 280s |
+| 2 | 26-dim + 4-layer | 82.91% | 405s |
+| 3 | 26-dim + 256h + 4L | 82.85% | 532s |
+| 4 | 26-dim baseline | 82.80% | 296s |
+| 5 | 14-dim baseline | 81.94% | 288s |
+
+Key techniques: Jumping Knowledge (JK), AMP, DropEdge, SWA, Focal Loss, GPU-direct training.
+
 ## Status
 
-- Dataset: 20,112 STEP/STL pairs, 197K annotated faces
-- Training: in progress
-- GPU: NVIDIA RTX 5060 Ti, 17 GB VRAM
+- Dataset: 19,902 STEP/STL pairs, ~200K annotated faces
+- Model: 919K params, 83% test on 2K samples
+- GPU: NVIDIA RTX 5060 Ti, 16 GB VRAM
 
 ## License
 
