@@ -83,25 +83,49 @@ def warmup_cosine_scheduler(optimizer, warmup_epochs, total_epochs):
         return 0.5 * (1 + np.cos(np.pi * progress))
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
+def rotate_normals_2d(nx, ny, angle):
+    """Rotate normal vectors in XY plane."""
+    c, s = np.cos(angle), np.sin(angle)
+    rnx = c * nx - s * ny
+    rny = s * nx + c * ny
+    return rnx, rny
+
+def augment_batch(graphs, noise_std=0.005):
+    """Online augmentation: random Z-rotation + normal noise."""
+    angle = random.uniform(0, 2 * np.pi)
+    augmented = []
+    for g in graphs:
+        gc = g.clone()
+        # Normal noise
+        gc.x[:, :3] += torch.randn_like(gc.x[:, :3]) * noise_std
+        # Renormalize normals
+        nrm = gc.x[:, :3].norm(dim=1, keepdim=True).clamp(1e-8)
+        gc.x[:, :3] = gc.x[:, :3] / nrm
+        augmented.append(gc)
+    return Batch.from_data_list(augmented)
+
 def train_one_fold(model, tg, vg, cw, BS, fold_name, warmup, total_ep):
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
     scheduler = warmup_cosine_scheduler(opt, warmup, total_ep)
     n_train, n_val = len(tg), len(vg)
     best = 0; patience = 0; hist = {'loss':[], 'val_loss':[], 'acc':[]}
     swa_weights = []
+    grad_accum = 2  # Effective BS = BS * grad_accum
 
     for epoch in range(1, total_ep+1):
-        model.train(); tls = 0
+        model.train(); tls = 0; opt.zero_grad()
         perm = torch.randperm(n_train, device=DEVICE)
-        for i in range(0, n_train, BS):
+        for bi, i in enumerate(range(0, n_train, BS)):
             idx = perm[i:i+BS].tolist()
-            batch = Batch.from_data_list([tg[j] for j in idx])
-            opt.zero_grad()
+            batch = augment_batch([tg[j] for j in idx])
             with torch.amp.autocast('cuda'):
-                loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0)
+                loss = focal_loss(model(batch), batch.y, alpha=cw, gamma=2.0) / grad_accum
             scaler.scale(loss).backward()
-            scaler.step(opt); scaler.update()
-            tls += loss.item() * len(idx)
+            if (bi + 1) % grad_accum == 0:
+                scaler.step(opt); scaler.update(); opt.zero_grad()
+            tls += loss.item() * grad_accum * len(idx)
+        if (n_train // BS) % grad_accum != 0:
+            scaler.step(opt); scaler.update(); opt.zero_grad()
         hist['loss'].append(tls / n_train)
 
         model.eval(); correct, total, vls = 0, 0, 0

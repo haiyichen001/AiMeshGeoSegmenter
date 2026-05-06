@@ -1,0 +1,89 @@
+{
+  "ensemble_seeds": [
+    42,
+    123,
+    456
+  ],
+  "cv_folds": 3,
+  "test_acc": 0.8788112755327141,
+  "per_class": {
+    "plane": {
+      "correct": 282606,
+      "total": 313178,
+      "acc": 0.9024
+    },
+    "cylinder": {
+      "correct": 217729,
+      "total": 248906,
+      "acc": 0.8747
+    },
+    "sphere": {
+      "correct": 47358,
+      "total": 64007,
+      "acc": 0.7399
+    },
+    "cone": {
+      "correct": 61838,
+      "total": 69819,
+      "acc": 0.8857
+    },
+    "torus": {
+      "correct": 221650,
+      "total": 228366,
+      "acc": 0.9706
+    },
+    "freeform": {
+      "correct": 53216,
+      "total": 82080,
+      "acc": 0.6483
+    }
+  },
+  "fold_results": [
+    {
+      "seed": 42,
+      "fold": 1,
+      "best_val": 0.8651562639350737
+    },
+    {
+      "seed": 42,
+      "fold": 2,
+      "best_val": 0.8638348048548076
+    },
+    {
+      "seed": 42,
+      "fold": 3,
+      "best_val": 0.8706232810064726
+    },
+    {
+      "seed": 123,
+      "fold": 1,
+      "best_val": 0.866613155983641
+    },
+    {
+      "seed": 123,
+      "fold": 2,
+      "best_val": 0.865560888723334
+    },
+    {
+      "seed": 123,
+      "fold": 3,
+      "best_val": 0.8715346680869764
+    },
+    {
+      "seed": 456,
+      "fold": 1,
+      "best_val": 0.8631693613117761
+    },
+    {
+      "seed": 456,
+      "fold": 2,
+      "best_val": 0.8660488090873856
+    },
+    {
+      "seed": 456,
+      "fold": 3,
+      "best_val": 0.8724661783864943
+    }
+  ],
+  "train_time_s": 26345.0
+}
