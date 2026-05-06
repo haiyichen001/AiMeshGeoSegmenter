@@ -148,11 +148,34 @@ def predict_stl(stl_path, model_paths=None, refine=True):
 
     shape = np.sqrt(np.maximum(areas, 1e-12)) / np.maximum(perimeter * 0.07, 1e-12)
 
-    # Build 26-dim features matching training: 14 base + 12 Fourier (zero-padded for STL)
-    base = np.stack([normals[:,0],normals[:,1],normals[:,2], rel_ctr[:,0],rel_ctr[:,1],rel_ctr[:,2],
-                     area_log,center_dist,nbr_norm_var, dihedral, max_dih, shape, edge_ratio, vn_std], axis=1)
-    padding = np.zeros((len(base), 12), dtype=np.float32)
-    x = np.concatenate([base, padding], axis=1)
+    # Fourier position encoding (matching training: 36-dim layout)
+    verts_min = verts.min(axis=0); verts_max = verts.max(axis=0)
+    part_extent = verts_max - verts_min
+    part_diag = float(np.sqrt((part_extent**2).sum()))
+    part_ctr_v = (verts_min + verts_max) / 2.0
+    rel_ctr_v = (centers - part_ctr_v) / max(part_diag / 2, 1e-6)
+    fourier = []
+    for freq in [np.pi, 2*np.pi]:
+        for axis in range(3):
+            fourier.append(np.sin(freq * rel_ctr_v[:, axis]))
+            fourier.append(np.cos(freq * rel_ctr_v[:, axis]))
+    elongation = part_extent / max(part_diag, 1e-6)
+    n_tri = len(areas)
+
+    # 26-dim exactly matching training (indices 0-25 from 36-dim cache)
+    x = np.stack([
+        normals[:,0], normals[:,1], normals[:,2],                                # 0-2
+        *[fourier[i] for i in range(12)],                                        # 3-14
+        np.log10(np.maximum(areas, 1e-6)),                                       # 15
+        nbr_norm_var,                                                              # 16
+        dihedral, max_dih,                                                        # 17-18
+        shape, edge_ratio,                                                        # 19-20
+        vn_std,                                                                    # 21
+        np.full(n_tri, np.log10(max(n_tri, 1)), dtype=np.float32),              # 22
+        np.full(n_tri, elongation[0], dtype=np.float32),                         # 23
+        np.full(n_tri, elongation[1], dtype=np.float32),                         # 24
+        np.zeros(n_tri, dtype=np.float32),                                       # 25 reserved
+    ], axis=1)
     ei = adj.T if len(adj)>0 else np.zeros((2,1),dtype=np.int64)
 
     # Edge features
