@@ -160,31 +160,42 @@ def main():
     X_t, y_t = torch.tensor(X, device=DEVICE), torch.tensor(y, device=DEVICE)
     X_te, y_te = torch.tensor(Xt, device=DEVICE), torch.tensor(yt, device=DEVICE)
     BS, best_acc = 8192, 0
+    mlp_hist = {'loss': [], 'acc': []}
 
     for epoch in range(1, 51):
-        model.train(); perm = torch.randperm(len(X))
+        model.train(); perm = torch.randperm(len(X)); epoch_loss = 0
         for i in range(0, len(X), BS):
             bi = perm[i:i+BS]
             loss = F.binary_cross_entropy_with_logits(model(X_t[bi]), y_t[bi])
             opt.zero_grad(); loss.backward(); opt.step()
+            epoch_loss += loss.item()
+        mlp_hist['loss'].append(epoch_loss / (len(X)/BS))
 
         model.eval()
         with torch.no_grad():
             out = model(X_te)
-            # Find optimal threshold
             best_t, best_a = 0.5, 0
             for t in np.arange(0.2, 0.8, 0.02):
                 acc = ((torch.sigmoid(out) > t).float() == y_te).float().mean().item()
                 if acc > best_a: best_a = acc; best_t = t
+            mlp_hist['acc'].append(best_a)
             if best_a > best_acc:
                 best_acc = best_a
                 torch.save({"model": model.state_dict(), "mean": mean, "std": std, "threshold": best_t},
                            ROOT/"models"/"edge_classifier.pt")
 
         if epoch % 10 == 0 or epoch == 1:
-            print(f"  Epoch {epoch:3d} | acc={best_a:.4f} thr={best_t:.3f}")
+            print(f"  Epoch {epoch:3d} | loss={mlp_hist['loss'][-1]:.4f} acc={best_a:.4f} thr={best_t:.3f}")
 
     print(f"\nBest: {best_acc:.4f} @ thr={best_t:.3f}")
     print(f"Model: {os.path.getsize(ROOT/'models'/'edge_classifier.pt')/1024:.0f} KB")
+
+    # Save training log
+    import json
+    with open(ROOT/"models"/"mlp_train_log.json", "w") as f:
+        json.dump({"model": "MLP Edge v2", "params": sum(p.numel() for p in model.parameters()),
+                   "best_acc": float(best_acc), "threshold": float(best_t),
+                   "history": mlp_hist}, f, indent=2)
+    print("Log saved.")
 
 if __name__ == "__main__": main()
