@@ -127,7 +127,7 @@ def compute_edge_features(verts, faces, adj, normals, centers, areas, span):
     return feats
 
 
-def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, return_regions=False):
+def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, verts=None, return_regions=False):
     """Use edge MLP to segment mesh into faces, then majority vote."""
     import torch, torch.nn as nn
 
@@ -145,8 +145,9 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, re
     model.load_state_dict(ckpt['model'])
     model.eval()
 
-    feats = compute_edge_features(verts=np.zeros((faces.max()+1, 3)), faces=faces,
-                                   adj=adj, normals=normals, centers=centers, areas=areas, span=span)
+    feats = compute_edge_features(verts=verts if verts is not None else np.zeros((faces.max()+1,3)),
+                                   faces=faces, adj=adj, normals=normals,
+                                   centers=centers, areas=areas, span=span)
     if len(feats) == 0:
         return [] if return_regions else pred_labels
 
@@ -286,9 +287,9 @@ def predict_stl(stl_path, model_paths=None, refine=True):
 
     # Post-processing: MLP edge classifier + majority vote, then build per-region faces
     if refine:
-        regions = mlp_merge_regions(faces, normals, centers, areas,
-                                     float(max(verts.max(axis=0)-verts.min(axis=0))),
-                                     adj, pred, return_regions=True)
+        span = float(max(verts.max(axis=0)-verts.min(axis=0)))
+        regions = mlp_merge_regions(faces, normals, centers, areas, span,
+                                     adj, pred, verts=verts, return_regions=True)
         # Build one face per region (like Labels page)
         faces_out = []
         for region_tris, region_label in regions:
