@@ -70,15 +70,13 @@ async function load(part) {
     if (!r.ok) { console.error('Failed'); return; }
     const d = await r.json();
 
-    // Build legend
-    const typeSet = {};
-    d.faces.forEach(f=>{
-      if (!typeSet[f.type]) typeSet[f.type] = {color:f.color, count:0};
-      typeSet[f.type].count++;
-    });
+    // Legend: always show all 6 classes
+    const ALL_COLORS = {"plane":"#4db8ff","cylinder":"#44cc44","sphere":"#ff44ff","cone":"#ff8844","torus":"#ffcc00","freeform":"#888888"};
+    const counts = {};
+    d.faces.forEach(f=>{ counts[f.type] = (counts[f.type]||0)+1; });
     const legend = document.getElementById('legend');
-    legend.innerHTML = Object.entries(typeSet).map(([t,info])=>
-      `<div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:3px"><span style="width:12px;height:12px;border-radius:2px;background:${info.color}"></span><span style="color:#ccc;font-size:10px">${t} (${info.count})</span></div>`
+    legend.innerHTML = Object.entries(ALL_COLORS).map(([t,c])=>
+      `<div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:3px"><span style="width:12px;height:12px;border-radius:2px;background:${c}"></span><span style="color:#ccc;font-size:10px">${t} (${counts[t]||0})</span></div>`
     ).join('');
 
     // Render faces
