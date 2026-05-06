@@ -111,7 +111,7 @@ async function runInference(stlBlob, filename) {
 
     const div = document.createElement('div');
     div.textContent = f.type;
-    div.style.cssText = `color:${f.color};font-size:10px;font-weight:bold;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:3px;white-space:nowrap;pointer-events:none`;
+    div.style.cssText = `color:#fff;font-size:12px;font-weight:700;background:${f.color};padding:2px 6px;border-radius:3px;white-space:nowrap;pointer-events:none`;
     const label = new CSS2DObject(div);
     label.position.set(...f.center);
     group.add(label);
