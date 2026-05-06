@@ -104,6 +104,88 @@ def merge_regions(faces, normals, pred_labels, angle_deg=5):
     return cleaned
 
 
+def compute_edge_features(verts, faces, adj, normals, centers, areas, span):
+    """Compute 8-dim edge features for MLP classification."""
+    n_edges = len(adj)
+    feats = np.zeros((n_edges, 8), dtype=np.float32)
+    if n_edges == 0:
+        return feats
+    for ei, (a, b) in enumerate(adj):
+        na, nb = normals[a], normals[b]
+        ca, cb = centers[a], centers[b]
+        dot = np.clip(np.dot(na, nb), -1, 1)
+        feats[ei, 0] = float(np.arccos(dot) * 180 / np.pi)
+        feats[ei, 1] = min(areas[a], areas[b]) / max(max(areas[a], areas[b]), 1e-12)
+        feats[ei, 2] = np.linalg.norm(ca - cb) / max(span, 1e-6)
+        feats[ei, 3] = np.linalg.norm(ca - cb)
+        shape_a = float(np.sqrt(max(areas[a], 1e-12)) / max(np.linalg.norm(verts[faces[a]] - verts[faces[a]].mean(axis=0)).sum(), 1e-12))
+        shape_b = float(np.sqrt(max(areas[b], 1e-12)) / max(np.linalg.norm(verts[faces[b]] - verts[faces[b]].mean(axis=0)).sum(), 1e-12))
+        feats[ei, 4] = shape_a
+        feats[ei, 5] = shape_b
+        feats[ei, 6] = float(np.dot(na, cb - ca))
+        feats[ei, 7] = 0.0
+    return feats
+
+
+def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels):
+    """Use edge MLP to segment mesh into faces, then majority vote."""
+    import torch, torch.nn as nn
+
+    # Load edge classifier
+    ckpt = torch.load(str(ROOT / "models" / "edge_classifier.pt"), map_location='cpu', weights_only=False)
+    mean, std = np.array(ckpt['mean']), np.array(ckpt['std'])
+
+    class EdgeMLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.net = nn.Sequential(nn.Linear(8, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 1))
+        def forward(self, x):
+            return self.net(x).squeeze(-1)
+
+    model = EdgeMLP()
+    model.load_state_dict(ckpt['model'])
+    model.eval()
+
+    # Compute edge features
+    feats = compute_edge_features(verts=np.zeros((faces.max()+1, 3)), faces=faces,
+                                   adj=adj, normals=normals, centers=centers, areas=areas, span=span)
+    if len(feats) == 0:
+        return pred_labels
+
+    feats_norm = (feats - mean) / std.clip(1e-6)
+    with torch.no_grad():
+        edge_pred = (torch.sigmoid(model(torch.tensor(feats_norm))) > 0.5).numpy()
+
+    # Build graph: connect triangles where edge_pred==1 (same face)
+    nbrs = [[] for _ in range(len(faces))]
+    for (a, b), same in zip(adj, edge_pred):
+        if same:
+            nbrs[a].append(b)
+            nbrs[b].append(a)
+
+    # Connected components
+    visited = np.zeros(len(faces), dtype=bool)
+    regions = []
+    for seed in range(len(faces)):
+        if visited[seed]:
+            continue
+        region = [seed]; visited[seed] = True; head = 0
+        while head < len(region):
+            ti = region[head]; head += 1
+            for nb in nbrs[ti]:
+                if not visited[nb]:
+                    visited[nb] = True
+                    region.append(nb)
+        labels_in_region = pred_labels[region]
+        counts = np.bincount(labels_in_region, minlength=8)
+        regions.append((region, int(np.argmax(counts))))
+
+    cleaned = pred_labels.copy()
+    for region, label in regions:
+        cleaned[region] = label
+    return cleaned
+
+
 def predict_stl(stl_path, model_paths=None, refine=True):
     if model_paths is None:
         model_paths = [str(ROOT / "models" / "model.pt")]
@@ -203,9 +285,11 @@ def predict_stl(stl_path, model_paths=None, refine=True):
     avg_prob = np.mean(all_log_probs, axis=0)
     pred = avg_prob.argmax(axis=1)
 
-    # Post-processing: region growing + voting
+    # Post-processing: MLP edge classifier + majority vote
     if refine:
-        pred = merge_regions(faces, normals, pred)
+        pred = mlp_merge_regions(faces, normals, centers, areas,
+                                  float(max(verts.max(axis=0)-verts.min(axis=0))),
+                                  adj, pred)
 
     # Group by predicted label -> patches for visualization
     faces_out = []
