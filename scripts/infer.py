@@ -50,31 +50,34 @@ class TriangleGAT(nn.Module):
         return F.log_softmax(self.mlp(x_cat), dim=-1)
 
 
-def merge_regions(faces, normals, pred_labels, angle_deg=15):
-    """Region growing + majority vote: clean per-triangle predictions.
+def merge_regions(faces, normals, pred_labels, sharp_angle=30):
+    """Region growing + majority vote.
 
-    1. Merge adjacent triangles into regions based on normal angle < angle_deg.
-    2. Within each region, majority vote on predicted labels -> assign to all.
-    Returns cleaned per-triangle label array.
+    Uses boundary detection: adjacent triangles with dihedral > sharp_angle are
+    considered region boundaries (sharp edges). Everything between boundaries
+    is the same face. Then majority vote within each region.
     """
     import trimesh
     m = trimesh.Trimesh(vertices=np.zeros((faces.max()+1, 3), dtype=np.float32),
                         faces=faces, process=False)
     adj = m.face_adjacency
 
-    # Build adjacency list
+    # Build adjacency + edge dihedral angles
     nbrs = [[] for _ in range(len(faces))]
+    edge_sharp = {}
     for a, b in adj:
         nbrs[a].append(b)
         nbrs[b].append(a)
+        dot = min(1.0, max(0.0, abs(np.dot(normals[a], normals[b]))))
+        ang = float(np.arccos(dot) * 180 / np.pi)
+        edge_sharp[(min(a,b), max(a,b))] = ang > sharp_angle
 
     visited = np.zeros(len(faces), dtype=bool)
-    regions = []  # list of (triangle_indices, label_counts)
+    regions = []
 
     for seed in range(len(faces)):
         if visited[seed]:
             continue
-        # Region growing via BFS
         region = [seed]
         visited[seed] = True
         head = 0
@@ -83,20 +86,17 @@ def merge_regions(faces, normals, pred_labels, angle_deg=15):
             for nb in nbrs[ti]:
                 if visited[nb]:
                     continue
-                # Check normal angle between current and neighbor
-                dot = min(1.0, max(0.0, abs(np.dot(normals[ti], normals[nb]))))
-                ang = float(np.arccos(dot) * 180 / np.pi)
-                if ang < angle_deg:
+                # Only grow through non-sharp edges
+                key = (min(ti, nb), max(ti, nb))
+                if not edge_sharp.get(key, False):
                     visited[nb] = True
                     region.append(nb)
 
-        # Majority vote within region
         labels_in_region = pred_labels[region]
         counts = np.bincount(labels_in_region, minlength=8)
         majority = int(np.argmax(counts))
         regions.append((region, majority))
 
-    # Assign cleaned labels
     cleaned = pred_labels.copy()
     for region, label in regions:
         cleaned[region] = label
