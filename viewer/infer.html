@@ -76,20 +76,35 @@ function renderFaces(gi, data, edgeMode) {
   data.forEach(f=>{
     const geo=new THREE.BufferGeometry();
     geo.setAttribute('position',new THREE.Float32BufferAttribute(f.vertices,3));
-    geo.setIndex(f.triangles);
-    geo.computeVertexNormals();
-    const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(f.color),specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:true});
-    groups[gi].add(new THREE.Mesh(geo,mat));
-    if (edgeMode === 'wire') {
-      const wire=new THREE.LineSegments(
-        new THREE.WireframeGeometry(geo.clone()),
-        new THREE.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.2})
-      );
-      groups[gi].add(wire);
-    } else if (edgeMode === 'boundary') {
-      const edges=new THREE.EdgesGeometry(geo, 30);
-      const line=new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0x000000,linewidth:1}));
-      groups[gi].add(line);
+    if (f.face_colors) {
+      // Per-vertex colors (middle panel: GAT raw colors)
+      geo.setAttribute('color',new THREE.Float32BufferAttribute(f.face_colors,3));
+      geo.setIndex(f.triangles);
+      const mat=new THREE.MeshPhongMaterial({vertexColors:true,specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:true});
+      groups[gi].add(new THREE.Mesh(geo,mat));
+      // Boundary lines
+      if (f.boundary_lines && f.boundary_lines.length > 0) {
+        const bgeo=new THREE.BufferGeometry();
+        bgeo.setAttribute('position',new THREE.Float32BufferAttribute(f.boundary_lines,3));
+        const bline=new THREE.LineSegments(bgeo, new THREE.LineBasicMaterial({color:0x000000,linewidth:2}));
+        groups[gi].add(bline);
+      }
+    } else {
+      geo.setIndex(f.triangles);
+      geo.computeVertexNormals();
+      const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(f.color),specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:true});
+      groups[gi].add(new THREE.Mesh(geo,mat));
+      if (edgeMode === 'wire') {
+        const wire=new THREE.LineSegments(
+          new THREE.WireframeGeometry(geo.clone()),
+          new THREE.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.2})
+        );
+        groups[gi].add(wire);
+      } else if (edgeMode === 'boundary') {
+        const edges=new THREE.EdgesGeometry(geo, 30);
+        const line=new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0x000000,linewidth:1}));
+        groups[gi].add(line);
+      }
     }
   });
 }
