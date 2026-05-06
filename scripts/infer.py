@@ -148,8 +148,11 @@ def predict_stl(stl_path, model_paths=None, refine=True):
 
     shape = np.sqrt(np.maximum(areas, 1e-12)) / np.maximum(perimeter * 0.07, 1e-12)
 
-    x = np.stack([normals[:,0],normals[:,1],normals[:,2], rel_ctr[:,0],rel_ctr[:,1],rel_ctr[:,2],
-                  area_log,center_dist,nbr_norm_var, dihedral, max_dih, shape, edge_ratio, vn_std], axis=1)
+    # Build 26-dim features matching training: 14 base + 12 Fourier (zero-padded for STL)
+    base = np.stack([normals[:,0],normals[:,1],normals[:,2], rel_ctr[:,0],rel_ctr[:,1],rel_ctr[:,2],
+                     area_log,center_dist,nbr_norm_var, dihedral, max_dih, shape, edge_ratio, vn_std], axis=1)
+    padding = np.zeros((len(base), 12), dtype=np.float32)
+    x = np.concatenate([base, padding], axis=1)
     ei = adj.T if len(adj)>0 else np.zeros((2,1),dtype=np.int64)
 
     # Edge features
@@ -166,7 +169,7 @@ def predict_stl(stl_path, model_paths=None, refine=True):
     # Ensemble: average predictions from all models
     all_log_probs = []
     for mp in model_paths:
-        model = TriangleGAT(in_dim=14)
+        model = TriangleGAT(in_dim=26)
         model.load_state_dict(torch.load(mp, map_location='cpu', weights_only=False))
         model.eval()
         data = Data(x=torch.tensor(x), edge_index=torch.tensor(ei, dtype=torch.long), edge_attr=ea)
