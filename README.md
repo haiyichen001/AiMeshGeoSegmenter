@@ -160,13 +160,35 @@ Per-class accuracy (v4 ensemble, 2,986 test parts):
 
 ```
 STL mesh
-  → GAT (26-dim + JK + AMP + DropEdge) → per-triangle 6-class labels
-  → MLP Edge Classifier (4-dim, 95.2%) → identify face boundaries
-  → Connected Components + Majority Vote → per-face labels
-  → 6-class visualization (plane/cylinder/sphere/cone/torus/freeform)
+  │
+  ├─ GAT (26-dim + JK + AMP + DropEdge)
+  │     └→ per-triangle 6-class prediction (87.9% ensemble test acc)
+  │
+  ├─ MLP Edge Classifier (4-dim, 95.4%)
+  │     └→ detect face boundaries (adjacent triangles: same face? yes/no)
+  │
+  ├─ Connected Components
+  │     └→ group triangles into regions by MLP-predicted boundaries
+  │
+  └─ Area-Weighted Majority Vote
+        └→ per-face final label
+           → plane / cylinder / sphere / cone / torus / freeform
 ```
 
-This is a complete end-to-end pipeline: AI predicts surface types AND face boundaries with zero hardcoded thresholds. The only remaining work is model fine-tuning and training on more data for higher accuracy.
+Infer page shows 3 views side-by-side:
+- Left: GAT raw per-triangle predictions (wireframe)
+- Mid: MLP regions with GAT raw colors (no vote) — see boundary quality
+- Right: MLP Voted (final per-face labels with area-weighted vote)
+
+## Model Architecture
+
+| Component | Detail |
+|-----------|--------|
+| GAT | 3-layer + Jumping Knowledge, 192h×4, 919K params |
+| GAT Input | 26-dim: normals(3) + Fourier(12) + geometry/stats(11) + edge(3) |
+| Edge MLP | 4→64→32→16→1, 2.9K params, 95.4% acc |
+| MLP Input | 4-dim: dihedral angle, area ratio, dist, convexity |
+| Training | AMP + Focal Loss(γ=2) + DropEdge 15% + SWA + Cosine LR
 
 ## Status
 
