@@ -73,7 +73,8 @@ function renderFaces(gi, data) {
     const geo=new THREE.BufferGeometry();
     geo.setAttribute('position',new THREE.Float32BufferAttribute(f.vertices,3));
     geo.setIndex(f.triangles);
-    const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(f.color),specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:false});
+    geo.computeVertexNormals();
+    const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(f.color),specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:true});
     groups[gi].add(new THREE.Mesh(geo,mat));
   });
 }
