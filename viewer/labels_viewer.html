@@ -30,10 +30,8 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
-
 const BASE = '';
-let scene, renderer, labelRenderer, cam, ctrl, group;
+let scene, renderer, cam, ctrl, group;
 
 function initScene() {
   scene = new THREE.Scene();
@@ -42,21 +40,15 @@ function initScene() {
   renderer = new THREE.WebGLRenderer({antialias:true});
   renderer.setSize(w,h); renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
   document.body.appendChild(renderer.domElement);
-  labelRenderer = new CSS2DRenderer();
-  labelRenderer.setSize(w,h); labelRenderer.domElement.style.position='absolute';
-  labelRenderer.domElement.style.top='0'; labelRenderer.domElement.style.pointerEvents='none';
-  document.body.appendChild(labelRenderer.domElement);
-  cam = new THREE.PerspectiveCamera(35,w/h,0.001,1000);
+  cam = new THREE.PerspectiveCamera(35,w/h,0.001,100000);
   cam.position.set(1,0.6,1.5); cam.up.set(0,0,1);
   ctrl = new OrbitControls(cam, renderer.domElement);
   ctrl.enableDamping = true; ctrl.dampingFactor = 0.12; ctrl.target.set(0,0,0);
   scene.add(new THREE.AmbientLight(0xffffff,3));
-  const d1 = new THREE.DirectionalLight(0xffffff,3); d1.position.set(1,1,1); scene.add(d1);
-  const d2 = new THREE.DirectionalLight(0x8888cc,2); d2.position.set(-0.5,-0.5,-0.5); scene.add(d2);
+  const d1 = new THREE.DirectionalLight(0xffffff,5); d1.position.set(1,1,1); scene.add(d1);
   group = new THREE.Group(); scene.add(group);
   window.addEventListener('resize',()=>{
     renderer.setSize(window.innerWidth, window.innerHeight);
-    labelRenderer.setSize(window.innerWidth, window.innerHeight);
     cam.aspect = window.innerWidth/window.innerHeight; cam.updateProjectionMatrix();
   });
 }
@@ -96,21 +88,10 @@ async function load(part) {
       geo.setIndex(f.triangles);
       geo.computeVertexNormals();
       const mat = new THREE.MeshPhongMaterial({
-        color: new THREE.Color(f.color),
-        specular: 0x000000, shininess: 0,
-        side: THREE.DoubleSide, transparent: true, opacity: 0.5, depthWrite: false
+        color: new THREE.Color(f.color), specular: 0x222222, shininess: 30,
+        side: THREE.DoubleSide, flatShading: true
       });
-      const mesh = new THREE.Mesh(geo, mat);
-      group.add(mesh);
-
-      // Label at face center
-      const div = document.createElement('div');
-      div.textContent = f.type;
-      div.style.cssText = `color:#fff;font-size:12px;font-weight:bold;background:${f.color};padding:2px 6px;border-radius:3px;white-space:nowrap;pointer-events:none`;
-      const label = new CSS2DObject(div);
-      const [cx,cy,cz] = f.center;
-      label.position.set(cx, cy, cz);
-      group.add(label);
+      group.add(new THREE.Mesh(geo, mat));
     });
 
     cam.position.set(d.center[0]+d.span*0.6, d.center[1]+d.span*0.4, d.center[2]+d.span*0.7);
@@ -120,7 +101,7 @@ async function load(part) {
   document.getElementById('loading').style.display = 'none';
 }
 
-function animate() { requestAnimationFrame(animate); ctrl.update(); renderer.render(scene,cam); labelRenderer.render(scene,cam); }
+function animate() { requestAnimationFrame(animate); ctrl.update(); renderer.render(scene,cam); }
 
 async function init() {
   initScene(); animate();
