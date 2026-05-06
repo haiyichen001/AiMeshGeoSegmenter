@@ -312,11 +312,32 @@ def predict_stl(stl_path, model_paths=None, refine=True):
         raw_faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,"color":COLORS[name],"center":[cx,cy,cz]})
 
 
-    # Post-processing: MLP edge classifier + majority vote, then build per-region faces
+    # Middle panel: MLP regions WITHOUT voting (keep GAT raw colors per region)
+    mid_faces_out = []
     if refine:
         span = float(max(verts.max(axis=0)-verts.min(axis=0)))
         regions = mlp_merge_regions(faces, normals, centers, areas, span,
                                      adj, pred, verts=verts, return_regions=True)
+        # Build middle panel: regions colored by GAT majority (pre-vote colors)
+        for region_tris, _ in regions:
+            # Color by the GAT majority label within this region
+            labels_in_region = pred[region_tris]
+            counts = np.bincount(labels_in_region, minlength=8)
+            mid_label = int(np.argmax(counts))
+            mid_name = LABEL_NAMES[mid_label]
+            tris = faces[region_tris]
+            vset = {}; vi = 0; loc_verts = []; loc_tris = []
+            for t in tris:
+                lt = []
+                for v in t:
+                    if v not in vset: vset[v]=vi; loc_verts.extend(verts[v].tolist()); vi+=1
+                    lt.append(vset[v])
+                loc_tris.extend(lt)
+            cx = sum(loc_verts[0::3])/vi; cy = sum(loc_verts[1::3])/vi; cz = sum(loc_verts[2::3])/vi
+            mid_faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":mid_name,
+                                   "color":COLORS[mid_name],"center":[cx,cy,cz]})
+
+        # Right panel: MLP regions WITH voting
         merged_faces_out = []
         for region_tris, region_label in regions:
             tris = faces[region_tris]
@@ -337,10 +358,12 @@ def predict_stl(stl_path, model_paths=None, refine=True):
     span = float(max(verts.max(axis=0)-verts.min(axis=0)))
     return {
         "raw_faces": raw_faces_out,
+        "mid_faces": mid_faces_out if refine else raw_faces_out,
         "merged_faces": merged_faces_out,
         "center": centers.mean(axis=0).tolist(),
         "span": span,
         "num_raw": len(raw_faces_out),
+        "num_mid": len(mid_faces_out) if refine else len(raw_faces_out),
         "num_merged": len(merged_faces_out)
     }
 

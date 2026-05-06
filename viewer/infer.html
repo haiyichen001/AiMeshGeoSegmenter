@@ -22,8 +22,12 @@ body { overflow:hidden; margin:0; padding:0; }
     <div id="leg0" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
   </div>
   <div class="view" id="v1">
-    <div class="vlabel">MLP Merged</div>
+    <div class="vlabel">MLP No Vote</div>
     <div id="leg1" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
+  </div>
+  <div class="view" id="v2">
+    <div class="vlabel">MLP Voted</div>
+    <div id="leg2" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
   </div>
 </div>
 <div id="loading">AI inferring...</div>
@@ -35,7 +39,7 @@ body { overflow:hidden; margin:0; padding:0; }
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const N=2, scenes=[], renderers=[], cams=[], ctrls=[], groups=[];
+const N=3, scenes=[], renderers=[], cams=[], ctrls=[], groups=[], isRaw=[true,false,false];
 let center=[0,0,0], span=1, sync=false;
 
 function init(i, elId) {
@@ -67,7 +71,7 @@ function clearAll() {
   groups.forEach(g=>{while(g.children.length){const c=g.children[0];if(c.geometry)c.geometry.dispose();if(c.material)c.material.dispose();g.remove(c);}});
 }
 
-function renderFaces(gi, data) {
+function renderFaces(gi, data, addWire) {
   if (!data) return;
   data.forEach(f=>{
     const geo=new THREE.BufferGeometry();
@@ -76,6 +80,13 @@ function renderFaces(gi, data) {
     geo.computeVertexNormals();
     const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(f.color),specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:true});
     groups[gi].add(new THREE.Mesh(geo,mat));
+    if (addWire) {
+      const wire=new THREE.LineSegments(
+        new THREE.WireframeGeometry(geo.clone()),
+        new THREE.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.2})
+      );
+      groups[gi].add(wire);
+    }
   });
 }
 
@@ -85,8 +96,9 @@ async function run(blob,name) {
   const r=await fetch('/api/infer',{method:'POST',body:fd});const d=await r.json();
   if(d.error){alert(d.error);document.getElementById('loading').style.display='none';return;}
   center=d.center;span=d.span;
-  renderFaces(0,d.raw_faces);
-  renderFaces(1,d.merged_faces);
+  renderFaces(0,d.raw_faces,true);
+  renderFaces(1,d.mid_faces);
+  renderFaces(2,d.merged_faces);
   for(let i=0;i<N;i++){
     ctrls[i].target.set(...center);
     const dist=span*2.5;
@@ -99,12 +111,14 @@ async function run(blob,name) {
   }
   document.getElementById('leg0').innerHTML = makeLegend();
   document.getElementById('leg1').innerHTML = makeLegend();
+  document.getElementById('leg2').innerHTML = makeLegend();
   document.getElementById('v0').querySelector('.vlabel').textContent = `GAT Raw (${d.num_raw} groups)`;
-  document.getElementById('v1').querySelector('.vlabel').textContent = `MLP Merged (${d.num_merged} faces)`;
+  document.getElementById('v1').querySelector('.vlabel').textContent = `MLP No Vote (${d.num_mid} regions)`;
+  document.getElementById('v2').querySelector('.vlabel').textContent = `MLP Voted (${d.num_merged} faces)`;
   document.getElementById('loading').style.display='none';
 }
 
-init(0,'v0');init(1,'v1');
+init(0,'v0');init(1,'v1');init(2,'v2');
 window.addEventListener('resize',layout);
 document.getElementById('btnInfer').addEventListener('click',async()=>{
   const p=document.getElementById('partSelect').value;if(!p)return;
