@@ -127,11 +127,10 @@ def compute_edge_features(verts, faces, adj, normals, centers, areas, span):
     return feats
 
 
-def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels):
+def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, return_regions=False):
     """Use edge MLP to segment mesh into faces, then majority vote."""
     import torch, torch.nn as nn
 
-    # Load edge classifier
     ckpt = torch.load(str(ROOT / "models" / "edge_classifier.pt"), map_location='cpu', weights_only=False)
     mean, std = np.array(ckpt['mean']), np.array(ckpt['std'])
 
@@ -146,24 +145,21 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels):
     model.load_state_dict(ckpt['model'])
     model.eval()
 
-    # Compute edge features
     feats = compute_edge_features(verts=np.zeros((faces.max()+1, 3)), faces=faces,
                                    adj=adj, normals=normals, centers=centers, areas=areas, span=span)
     if len(feats) == 0:
-        return pred_labels
+        return [] if return_regions else pred_labels
 
     feats_norm = (feats - mean) / std.clip(1e-6)
     with torch.no_grad():
         edge_pred = (torch.sigmoid(model(torch.tensor(feats_norm))) > 0.5).numpy()
 
-    # Build graph: connect triangles where edge_pred==1 (same face)
     nbrs = [[] for _ in range(len(faces))]
     for (a, b), same in zip(adj, edge_pred):
         if same:
             nbrs[a].append(b)
             nbrs[b].append(a)
 
-    # Connected components
     visited = np.zeros(len(faces), dtype=bool)
     regions = []
     for seed in range(len(faces)):
@@ -179,6 +175,9 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels):
         labels_in_region = pred_labels[region]
         counts = np.bincount(labels_in_region, minlength=8)
         regions.append((region, int(np.argmax(counts))))
+
+    if return_regions:
+        return regions
 
     cleaned = pred_labels.copy()
     for region, label in regions:
@@ -285,28 +284,42 @@ def predict_stl(stl_path, model_paths=None, refine=True):
     avg_prob = np.mean(all_log_probs, axis=0)
     pred = avg_prob.argmax(axis=1)
 
-    # Post-processing: MLP edge classifier + majority vote
+    # Post-processing: MLP edge classifier + majority vote, then build per-region faces
     if refine:
-        pred = mlp_merge_regions(faces, normals, centers, areas,
-                                  float(max(verts.max(axis=0)-verts.min(axis=0))),
-                                  adj, pred)
-
-    # Group by predicted label -> patches for visualization
-    faces_out = []
-    for li, name in enumerate(LABEL_NAMES):
-        mask = pred == li
-        if mask.sum() == 0: continue
-        tris = faces[mask]
-        # Build vertex set for this label
-        vset = {}; vi = 0; loc_verts = []; loc_tris = []
-        for t in tris:
-            lt = []
-            for v in t:
-                if v not in vset: vset[v]=vi; loc_verts.extend(verts[v].tolist()); vi+=1
-                lt.append(vset[v])
-            loc_tris.extend(lt)
-        cx=sum(loc_verts[0::3])/vi; cy=sum(loc_verts[1::3])/vi; cz=sum(loc_verts[2::3])/vi
-        faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,"color":COLORS[name],"center":[cx,cy,cz]})
+        regions = mlp_merge_regions(faces, normals, centers, areas,
+                                     float(max(verts.max(axis=0)-verts.min(axis=0))),
+                                     adj, pred, return_regions=True)
+        # Build one face per region (like Labels page)
+        faces_out = []
+        for region_tris, region_label in regions:
+            tris = faces[region_tris]
+            name = LABEL_NAMES[region_label]
+            vset = {}; vi = 0; loc_verts = []; loc_tris = []
+            for t in tris:
+                lt = []
+                for v in t:
+                    if v not in vset: vset[v]=vi; loc_verts.extend(verts[v].tolist()); vi+=1
+                    lt.append(vset[v])
+                loc_tris.extend(lt)
+            cx = sum(loc_verts[0::3])/vi; cy = sum(loc_verts[1::3])/vi; cz = sum(loc_verts[2::3])/vi
+            faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,
+                              "color":COLORS[name],"center":[cx,cy,cz]})
+    else:
+        # No refine: group by predicted label as before
+        faces_out = []
+        for li, name in enumerate(LABEL_NAMES):
+            mask = pred == li
+            if mask.sum() == 0: continue
+            tris = faces[mask]
+            vset = {}; vi = 0; loc_verts = []; loc_tris = []
+            for t in tris:
+                lt = []
+                for v in t:
+                    if v not in vset: vset[v]=vi; loc_verts.extend(verts[v].tolist()); vi+=1
+                    lt.append(vset[v])
+                loc_tris.extend(lt)
+            cx=sum(loc_verts[0::3])/vi; cy=sum(loc_verts[1::3])/vi; cz=sum(loc_verts[2::3])/vi
+            faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,"color":COLORS[name],"center":[cx,cy,cz]})
 
     span = float(max(verts.max(axis=0)-verts.min(axis=0)))
     return {"faces":faces_out,"center":centers.mean(axis=0).tolist(),"span":span,"num_patches":len(faces_out)}
