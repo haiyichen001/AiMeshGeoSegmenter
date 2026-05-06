@@ -147,6 +147,18 @@ Per-class accuracy (v4 ensemble, 2,986 test parts):
 - **Per-triangle inconsistency**: same B-Rep face may have different labels on adjacent triangles. Mitigated by `merge_regions` post-processing (region growing + majority vote).
 - **Rotation sensitivity**: Fourier position encoding is not rotation-invariant. Rotated parts may produce different predictions. Future: add rotation augmentation during training.
 
+## Pipeline (MVP)
+
+```
+STL mesh
+  → GAT (26-dim + JK + AMP + DropEdge) → per-triangle 6-class labels
+  → MLP Edge Classifier (4-dim, 95.2%) → identify face boundaries
+  → Connected Components + Majority Vote → per-face labels
+  → 6-class visualization (plane/cylinder/sphere/cone/torus/freeform)
+```
+
+This is a complete end-to-end pipeline: AI predicts surface types AND face boundaries with zero hardcoded thresholds. The only remaining work is model fine-tuning and training on more data for higher accuracy.
+
 ## Status
 
 - Dataset: 19,902 STEP/STL pairs, ~200K annotated faces
