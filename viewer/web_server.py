@@ -22,6 +22,8 @@ def model_page():
 def api_model_log(name):
     if name == "gat":
         path = DATA / "models" / "train_log.json"
+    elif name == "ensemble":
+        path = DATA / "models" / "ensemble_report.json"
     else:
         path = DATA / "models" / f"{name}_train_log.json"
     if not path.exists():
