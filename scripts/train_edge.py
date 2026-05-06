@@ -91,7 +91,7 @@ def extract_training_data(label_file, max_pairs_per_face=50):
             shape_b = float(np.sqrt(max(tri_areas[b_idx], 1e-12)) / max(np.linalg.norm(verts[tris[b_idx]] - verts[tris[b_idx]].mean(axis=0)).sum(), 1e-12))
             convex = float(np.dot(na, cb - ca))  # signed, indicates convex/concave
 
-            positives.append([angle, area_ratio, dist_rel, dist_abs, shape_a, shape_b, convex, 0.0])
+            positives.append([angle, area_ratio, dist_rel, convex])
 
     # Across-face negatives (triangles from adjacent B-Rep faces)
     for idx, info in face_info.items():
@@ -140,7 +140,7 @@ def extract_training_data(label_file, max_pairs_per_face=50):
                 area_ratio = min(area_a, area_b) / max(max(area_a, area_b), 1e-12)
                 shape_a = 0.5; shape_b = 0.5  # approximate for boundary pairs
                 convex = float(np.dot(na[ai], no[bi] - nc[ai]))
-                negatives.append([angle, area_ratio, dist_rel, dist_abs, shape_a, shape_b, convex, 0.0])
+                negatives.append([angle, area_ratio, dist_rel, convex])
 
     return positives, negatives
 
@@ -205,7 +205,7 @@ def main():
 
     # Model: tiny MLP
     class EdgeClassifier(nn.Module):
-        def __init__(self, in_dim=8):
+        def __init__(self, in_dim=4):
             super().__init__()
             self.net = nn.Sequential(
                 nn.Linear(in_dim, 32), nn.ReLU(),

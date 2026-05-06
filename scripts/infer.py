@@ -105,9 +105,9 @@ def merge_regions(faces, normals, pred_labels, angle_deg=5):
 
 
 def compute_edge_features(verts, faces, adj, normals, centers, areas, span):
-    """Compute 8-dim edge features for MLP classification."""
+    """Compute 4-dim edge features for MLP classification (stable across B-Rep/STL)."""
     n_edges = len(adj)
-    feats = np.zeros((n_edges, 8), dtype=np.float32)
+    feats = np.zeros((n_edges, 4), dtype=np.float32)
     if n_edges == 0:
         return feats
     for ei, (a, b) in enumerate(adj):
@@ -117,13 +117,7 @@ def compute_edge_features(verts, faces, adj, normals, centers, areas, span):
         feats[ei, 0] = float(np.arccos(dot) * 180 / np.pi)
         feats[ei, 1] = min(areas[a], areas[b]) / max(max(areas[a], areas[b]), 1e-12)
         feats[ei, 2] = np.linalg.norm(ca - cb) / max(span, 1e-6)
-        feats[ei, 3] = np.linalg.norm(ca - cb)
-        shape_a = float(np.sqrt(max(areas[a], 1e-12)) / max(np.linalg.norm(verts[faces[a]] - verts[faces[a]].mean(axis=0)).sum(), 1e-12))
-        shape_b = float(np.sqrt(max(areas[b], 1e-12)) / max(np.linalg.norm(verts[faces[b]] - verts[faces[b]].mean(axis=0)).sum(), 1e-12))
-        feats[ei, 4] = shape_a
-        feats[ei, 5] = shape_b
-        feats[ei, 6] = float(np.dot(na, cb - ca))
-        feats[ei, 7] = 0.0
+        feats[ei, 3] = float(np.dot(na, cb - ca))
     return feats
 
 
@@ -137,7 +131,7 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, ve
     class EdgeMLP(nn.Module):
         def __init__(self):
             super().__init__()
-            self.net = nn.Sequential(nn.Linear(8, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 1))
+            self.net = nn.Sequential(nn.Linear(4, 32), nn.ReLU(), nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 1))
         def forward(self, x):
             return self.net(x).squeeze(-1)
 
