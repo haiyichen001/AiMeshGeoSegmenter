@@ -130,10 +130,27 @@ AiMeshGeoSegmenter/
 
 Key techniques: Jumping Knowledge (JK), AMP, DropEdge, SWA, Focal Loss, GPU-direct training.
 
+## Results
+
+| Version | Samples | Key Changes | Test Acc |
+|---------|---------|-------------|----------|
+| v1 | 2K | 10-dim baseline | 63.25% |
+| v2 | 2K | 14-dim + curvature + Focal Loss | 71.23% |
+| v3 | 2K | 26-dim + JK + AMP + DropEdge + SWA | 83.04% |
+| v4 | 20K | 3-seed ensemble | **87.88%** |
+
+Per-class accuracy (v4 ensemble, 2,986 test parts):
+- torus 97.06%, plane 90.24%, cone 88.57%, cylinder 87.47%, sphere 73.99%, freeform 64.83%
+
+## Known Issues
+
+- **Per-triangle inconsistency**: same B-Rep face may have different labels on adjacent triangles. Mitigated by `merge_regions` post-processing (region growing + majority vote).
+- **Rotation sensitivity**: Fourier position encoding is not rotation-invariant. Rotated parts may produce different predictions. Future: add rotation augmentation during training.
+
 ## Status
 
 - Dataset: 19,902 STEP/STL pairs, ~200K annotated faces
-- Model: 919K params, 83% test on 2K samples
+- Model: 919K params, 87.88% ensemble test accuracy
 - GPU: NVIDIA RTX 5060 Ti, 16 GB VRAM
 
 ## License
