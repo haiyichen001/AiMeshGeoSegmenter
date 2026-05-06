@@ -50,7 +50,7 @@ class TriangleGAT(nn.Module):
         return F.log_softmax(self.mlp(x_cat), dim=-1)
 
 
-def merge_regions(faces, normals, pred_labels, angle_deg=15):
+def merge_regions(faces, normals, pred_labels, angle_deg=5):
     """Region growing + majority vote: clean per-triangle predictions.
 
     1. Merge adjacent triangles into regions based on normal angle < angle_deg.
