@@ -71,7 +71,7 @@ function clearAll() {
   groups.forEach(g=>{while(g.children.length){const c=g.children[0];if(c.geometry)c.geometry.dispose();if(c.material)c.material.dispose();g.remove(c);}});
 }
 
-function renderFaces(gi, data, addWire) {
+function renderFaces(gi, data, edgeMode) {
   if (!data) return;
   data.forEach(f=>{
     const geo=new THREE.BufferGeometry();
@@ -80,12 +80,16 @@ function renderFaces(gi, data, addWire) {
     geo.computeVertexNormals();
     const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(f.color),specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:true});
     groups[gi].add(new THREE.Mesh(geo,mat));
-    if (addWire) {
+    if (edgeMode === 'wire') {
       const wire=new THREE.LineSegments(
         new THREE.WireframeGeometry(geo.clone()),
         new THREE.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.2})
       );
       groups[gi].add(wire);
+    } else if (edgeMode === 'boundary') {
+      const edges=new THREE.EdgesGeometry(geo, 30);
+      const line=new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0x000000,linewidth:1}));
+      groups[gi].add(line);
     }
   });
 }
@@ -96,9 +100,9 @@ async function run(blob,name) {
   const r=await fetch('/api/infer',{method:'POST',body:fd});const d=await r.json();
   if(d.error){alert(d.error);document.getElementById('loading').style.display='none';return;}
   center=d.center;span=d.span;
-  renderFaces(0,d.raw_faces,true);
-  renderFaces(1,d.mid_faces,true);
-  renderFaces(2,d.merged_faces,true);
+  renderFaces(0,d.raw_faces,'wire');
+  renderFaces(1,d.mid_faces,'boundary');
+  renderFaces(2,d.merged_faces,'boundary');
   for(let i=0;i<N;i++){
     ctrls[i].target.set(...center);
     const dist=span*2.5;
