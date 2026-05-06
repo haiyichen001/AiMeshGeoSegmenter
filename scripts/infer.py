@@ -168,8 +168,9 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, ve
                     visited[nb] = True
                     region.append(nb)
         labels_in_region = pred_labels[region]
-        counts = np.bincount(labels_in_region, minlength=8)
-        regions.append((region, int(np.argmax(counts))))
+        region_areas = areas[region]
+        weighted = np.bincount(labels_in_region, weights=region_areas, minlength=8)
+        regions.append((region, int(np.argmax(weighted))))
 
     if return_regions:
         return regions
@@ -279,13 +280,29 @@ def predict_stl(stl_path, model_paths=None, refine=True):
     avg_prob = np.mean(all_log_probs, axis=0)
     pred = avg_prob.argmax(axis=1)
 
+    # Raw GAT: one mesh per label using uniform color (same pipeline as MLP side)
+    raw_faces_out = []
+    for li, name in enumerate(LABEL_NAMES):
+        mask = pred == li
+        if mask.sum() == 0: continue
+        tris = faces[mask]
+        vset = {}; vi = 0; loc_verts = []; loc_tris = []
+        for t in tris:
+            lt = []
+            for v in t:
+                if v not in vset: vset[v]=vi; loc_verts.extend(verts[v].tolist()); vi+=1
+                lt.append(vset[v])
+            loc_tris.extend(lt)
+        cx=sum(loc_verts[0::3])/vi; cy=sum(loc_verts[1::3])/vi; cz=sum(loc_verts[2::3])/vi
+        raw_faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,"color":COLORS[name],"center":[cx,cy,cz]})
+
+
     # Post-processing: MLP edge classifier + majority vote, then build per-region faces
     if refine:
         span = float(max(verts.max(axis=0)-verts.min(axis=0)))
         regions = mlp_merge_regions(faces, normals, centers, areas, span,
                                      adj, pred, verts=verts, return_regions=True)
-        # Build one face per region (like Labels page)
-        faces_out = []
+        merged_faces_out = []
         for region_tris, region_label in regions:
             tris = faces[region_tris]
             name = LABEL_NAMES[region_label]
@@ -297,27 +314,20 @@ def predict_stl(stl_path, model_paths=None, refine=True):
                     lt.append(vset[v])
                 loc_tris.extend(lt)
             cx = sum(loc_verts[0::3])/vi; cy = sum(loc_verts[1::3])/vi; cz = sum(loc_verts[2::3])/vi
-            faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,
+            merged_faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,
                               "color":COLORS[name],"center":[cx,cy,cz]})
     else:
-        # No refine: group by predicted label as before
-        faces_out = []
-        for li, name in enumerate(LABEL_NAMES):
-            mask = pred == li
-            if mask.sum() == 0: continue
-            tris = faces[mask]
-            vset = {}; vi = 0; loc_verts = []; loc_tris = []
-            for t in tris:
-                lt = []
-                for v in t:
-                    if v not in vset: vset[v]=vi; loc_verts.extend(verts[v].tolist()); vi+=1
-                    lt.append(vset[v])
-                loc_tris.extend(lt)
-            cx=sum(loc_verts[0::3])/vi; cy=sum(loc_verts[1::3])/vi; cz=sum(loc_verts[2::3])/vi
-            faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,"color":COLORS[name],"center":[cx,cy,cz]})
+        merged_faces_out = raw_faces_out
 
     span = float(max(verts.max(axis=0)-verts.min(axis=0)))
-    return {"faces":faces_out,"center":centers.mean(axis=0).tolist(),"span":span,"num_patches":len(faces_out)}
+    return {
+        "raw_faces": raw_faces_out,
+        "merged_faces": merged_faces_out,
+        "center": centers.mean(axis=0).tolist(),
+        "span": span,
+        "num_raw": len(raw_faces_out),
+        "num_merged": len(merged_faces_out)
+    }
 
 
 if __name__ == "__main__":

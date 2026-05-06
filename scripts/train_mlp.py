@@ -11,7 +11,7 @@ MLP_DIR = ROOT / "data" / "mlp_edges"
 MODEL_DIR = ROOT / "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-K, EPOCHS, BS = 5, 60, 65536
+K, EPOCHS, BS = 5, 40, 65536
 
 
 def auto_tune_batch(model, X, y):
@@ -61,17 +61,15 @@ for i, fn in enumerate(files):
     d = np.load(MLP_DIR / fn); X, y = d['X'], d['y']
     mp, mn = y==1, y==0; n = min(mp.sum(), mn.sum())
     if n == 0: continue
-    N_SAMPLE = 300
-    pi = np.random.choice(np.where(mp)[0], min(n, N_SAMPLE), replace=False)
-    ni = np.where(mn)[0]; ni = ni[np.argsort(X[ni,0])[:min(n, N_SAMPLE)]]
+    pi = np.random.choice(np.where(mp)[0], min(n, 200), replace=False)
+    ni = np.where(mn)[0]; ni = ni[np.argsort(X[ni,0])[:min(n, 200)]]
     pos.append(X[pi]); neg.append(X[ni])
     if (i+1) % 5000 == 0: print(f"  {i+1}/{len(files)}")
 
 X_all = np.vstack(pos+neg).astype(np.float32)
 y_all = np.array([1]*sum(len(p) for p in pos) + [0]*sum(len(n) for n in neg), dtype=np.float32)
 idx = np.random.permutation(len(X_all)); X_all, y_all = X_all[idx], y_all[idx]
-# Use up to 3M samples
-if len(X_all) > 3000000: X_all, y_all = X_all[:3000000], y_all[:3000000]
+if len(X_all) > 1000000: X_all, y_all = X_all[:1000000], y_all[:1000000]
 print(f"Loaded {len(X_all)} samples, {X_all.shape[1]} dims, in {time.time()-t0:.1f}s")
 
 class M(nn.Module):
@@ -129,6 +127,7 @@ print(f"Mean: {np.mean(fold_accs):.4f}  Std: {np.std(fold_accs):.4f}")
 mean_all, std_all = X_all.mean(axis=0), X_all.std(axis=0).clip(1e-6)
 Xa = (X_all - mean_all) / std_all
 fm = M(Xa.shape[1]).to(DEVICE)
+fm = torch.compile(fm, dynamic=True)
 opt = torch.optim.Adam(fm.parameters(), lr=0.001, weight_decay=1e-5)
 Xat = torch.tensor(Xa, device=DEVICE); yat = torch.tensor(y_all, device=DEVICE)
 final_hist = {'loss': []}

@@ -1,31 +1,32 @@
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8">
-<title>AI Inference</title>
+<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><title>AI Inference</title>
 <link rel="stylesheet" href="/theme.css"><style>
-#toolbar { position:fixed; top:36px; right:16px; z-index:100; }
-#legend { position:fixed; top:36px; left:16px; z-index:100; flex-direction:column; background:rgba(0,0,0,0.8); padding:8px 12px; border-radius:6px; }
-#fileInput { display:none; }
-</style>
-</head>
-<body>
+body { overflow:hidden; margin:0; padding:0; }
+#toolbar { position:fixed; top:38px; right:16px; z-index:100; display:flex; gap:8px; align-items:center; }
+#toolbar select, #toolbar button { padding:6px 10px; background:#1a1a1a; color:#ccc; border:1px solid #444; border-radius:4px; font-size:12px; cursor:pointer; }
+#views { display:flex; width:100vw; height:100vh; padding-top:36px; }
+.view { flex:1; position:relative; border-right:1px solid #1e1e1e; overflow:hidden; }
+.view canvas { display:block; position:absolute; top:0; left:0; z-index:0; }
+.vlabel { position:absolute; top:40px; left:8px; z-index:50; background:rgba(0,0,0,0.8); color:#ccc; padding:4px 10px; border-radius:4px; font-size:11px; pointer-events:none; }
+#loading { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:200; color:#06b6d4; font-size:16px; background:rgba(0,0,0,0.9); padding:12px 24px; border-radius:8px; display:none; }
+</style></head><body>
 <div id="navbar">
-  <a href="/">Compare</a>
-  <a href="/labels">Labels</a>
-  <a href="/model">Model</a>
-  <a href="/infer" class="active">Infer</a>
+  <a href="/">Compare</a><a href="/labels">Labels</a><a href="/model">Model</a><a href="/infer" class="active">Infer</a>
 </div>
 <div id="toolbar">
-  <select id="partSelect" style="max-width:300px;padding:6px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px;font-size:13px"></select>
+  <select id="partSelect" style="max-width:260px"></select>
   <button id="btnInfer">Infer</button>
-  <input type="file" id="fileInput" accept=".stl" style="display:none">
-  <label for="fileInput" id="fileLabel" style="padding:6px 12px;font-size:13px;background:#1a1a1a;color:#ccc;border:1px solid #444;border-radius:4px;cursor:pointer">Upload</label>
 </div>
-<div id="legend"></div>
-<div id="info"></div>
+<div id="views">
+  <div class="view" id="v0">
+    <div class="vlabel">GAT Raw</div>
+    <div id="leg0" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
+  </div>
+  <div class="view" id="v1">
+    <div class="vlabel">MLP Merged</div>
+    <div id="leg1" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
+  </div>
+</div>
 <div id="loading">AI inferring...</div>
-<div id="dropzone">Drop STL file or <span onclick="document.getElementById('fileInput').click()">browse</span></div>
 
 <script type="importmap">
 {"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
@@ -33,156 +34,90 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-let scene, renderer, labelRenderer, cam, ctrl, group;
+const N=2, scenes=[], renderers=[], cams=[], ctrls=[], groups=[];
+let center=[0,0,0], span=1, sync=false;
 
-function initScene() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0a0a);
-  const w = window.innerWidth, h = window.innerHeight;
-  renderer = new THREE.WebGLRenderer({antialias:true});
-  renderer.setSize(w,h); renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
-  document.body.appendChild(renderer.domElement);
-  labelRenderer = new CSS2DRenderer();
-  labelRenderer.setSize(w,h); labelRenderer.domElement.style.position='absolute';
-  labelRenderer.domElement.style.top='0'; labelRenderer.domElement.style.pointerEvents='none';
-  document.body.appendChild(labelRenderer.domElement);
-  cam = new THREE.PerspectiveCamera(35,w/h,0.001,1000);
+function init(i, elId) {
+  const el = document.getElementById(elId);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0a0a0a);
+  scenes[i]=scene;
+  const r = new THREE.WebGLRenderer({antialias:true});
+  r.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  r.domElement.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%';
+  el.appendChild(r.domElement); renderers[i]=r;
+  const cam = new THREE.PerspectiveCamera(35,1,0.01,100000);
   cam.position.set(1,0.6,1.5); cam.up.set(0,0,1);
-  ctrl = new OrbitControls(cam, renderer.domElement);
+  const ctrl = new OrbitControls(cam, r.domElement);
   ctrl.enableDamping = true; ctrl.target.set(0,0,0);
+  ctrl.addEventListener('change',()=>{if(!sync){sync=true;for(let j=0;j<N;j++){if(j===i)continue;cams[j].position.copy(cam.position);cams[j].quaternion.copy(cam.quaternion);ctrls[j].target.copy(ctrl.target);ctrls[j].update()}sync=false;}});
+  cams[i]=cam; ctrls[i]=ctrl;
   scene.add(new THREE.AmbientLight(0xffffff,3));
-  const d1 = new THREE.DirectionalLight(0xffffff,3); d1.position.set(1,1,1); scene.add(d1);
-  const d2 = new THREE.DirectionalLight(0x8888cc,2); d2.position.set(-0.5,-0.5,-0.5); scene.add(d2);
-  group = new THREE.Group(); scene.add(group);
-  window.addEventListener('resize',()=>{
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    labelRenderer.setSize(window.innerWidth, window.innerHeight);
-    cam.aspect = window.innerWidth/window.innerHeight; cam.updateProjectionMatrix();
-  });
+  const d1=new THREE.DirectionalLight(0xffffff,5);d1.position.set(1,1,1);scene.add(d1);
+  groups[i]=new THREE.Group();scene.add(groups[i]);
 }
 
-function clearGroup() {
-  while(group.children.length > 0) {
-    const c = group.children[0];
-    if (c.geometry) c.geometry.dispose();
-    if (c.material) { if (Array.isArray(c.material)) c.material.forEach(m=>m.dispose()); else c.material.dispose(); }
-    group.remove(c);
-  }
-  document.getElementById('legend').innerHTML = '';
-  document.getElementById('info').textContent = '';
+function layout() {
+  const W=window.innerWidth, H=window.innerHeight, cW=W/N;
+  renderers.forEach((r,i)=>r.setSize(cW,H));
+  cams.forEach(c=>{c.aspect=cW/H;c.updateProjectionMatrix();});
 }
 
-async function runInference(stlBlob, filename) {
-  document.getElementById('loading').style.display = 'block';
-  document.getElementById('dropzone').style.display = 'none';
-  clearGroup();
+function clearAll() {
+  groups.forEach(g=>{while(g.children.length){const c=g.children[0];if(c.geometry)c.geometry.dispose();if(c.material)c.material.dispose();g.remove(c);}});
+}
 
-  const form = new FormData();
-  form.append('stl', stlBlob, filename || 'model.stl');
-
-  const r = await fetch('/api/infer', { method: 'POST', body: form });
-  const d = await r.json();
-  if (d.error) { alert('Error: ' + d.error); document.getElementById('loading').style.display = 'none'; return; }
-
-  // Legend
-  const typeCount = {};
-  d.faces.forEach(f => {
-    if (!typeCount[f.type]) typeCount[f.type] = { color: f.color, count: 0 };
-    typeCount[f.type].count++;
-  });
-  const legend = document.getElementById('legend');
-  legend.innerHTML = Object.entries(typeCount).map(([t, info]) =>
-    `<div class="item"><span class="dot" style="background:${info.color}"></span>${t} (${info.count})</div>`
-  ).join('');
-
-  // Render
-  d.faces.forEach(f => {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(f.vertices, 3));
+function renderFaces(gi, data) {
+  if (!data) return;
+  data.forEach(f=>{
+    const geo=new THREE.BufferGeometry();
+    geo.setAttribute('position',new THREE.Float32BufferAttribute(f.vertices,3));
     geo.setIndex(f.triangles);
-    geo.computeVertexNormals();
-    const mat = new THREE.MeshPhongMaterial({
-      color: new THREE.Color(f.color), specular: 0x000000, shininess: 0,
-      side: THREE.DoubleSide, transparent: true, opacity: 0.55, depthWrite: false
-    });
-    group.add(new THREE.Mesh(geo, mat));
-
-    const div = document.createElement('div');
-    div.textContent = f.type;
-    div.style.cssText = `color:#fff;font-size:12px;font-weight:700;background:${f.color};padding:2px 6px;border-radius:3px;white-space:nowrap;pointer-events:none`;
-    const label = new CSS2DObject(div);
-    label.position.set(...f.center);
-    group.add(label);
+    const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(f.color),specular:0x222222,shininess:30,side:THREE.DoubleSide,flatShading:false});
+    groups[gi].add(new THREE.Mesh(geo,mat));
   });
-
-  cam.position.set(d.center[0] + d.span * 0.6, d.center[1] + d.span * 0.4, d.center[2] + d.span * 0.7);
-  ctrl.target.set(...d.center); ctrl.update();
-  document.getElementById('info').textContent = `${filename || 'STL'} | ${d.num_patches} patches`;
-  document.getElementById('loading').style.display = 'none';
 }
 
-// File input
-document.getElementById('fileInput').addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (file) runInference(file, file.name);
-});
-
-// Drag & drop
-document.body.addEventListener('dragover', e => { e.preventDefault(); });
-document.body.addEventListener('drop', e => {
-  e.preventDefault();
-  const file = e.dataTransfer.files[0];
-  if (file && file.name.toLowerCase().endsWith('.stl')) {
-    runInference(file, file.name);
+async function run(blob,name) {
+  document.getElementById('loading').style.display='block';clearAll();
+  const fd=new FormData();fd.append('stl',blob,name||'m.stl');
+  const r=await fetch('/api/infer',{method:'POST',body:fd});const d=await r.json();
+  if(d.error){alert(d.error);document.getElementById('loading').style.display='none';return;}
+  center=d.center;span=d.span;
+  renderFaces(0,d.raw_faces);
+  renderFaces(1,d.merged_faces);
+  for(let i=0;i<N;i++){
+    ctrls[i].target.set(...center);
+    const dist=span*2.5;
+    cams[i].position.set(center[0]+dist*0.6,center[1]+dist*0.4,center[2]+dist*0.7);
+    cams[i].lookAt(...center);ctrls[i].update();
   }
-});
-
-// Load parts list and populate dropdown
-async function initParts() {
-  const r = await fetch('/api/parts');
-  const parts = await r.json();
-  const sel = document.getElementById('partSelect');
-  const groups = {};
-  parts.forEach(p => {
-    let g = 'ABC';
-    const pfxs = ['HexagonNut','HexHeadBolt','SocketHeadCap','Countersunk','PanHead','SetScrew',
-      'PlainWasher','ChamferedWasher','DeepGroove','CappedDeep','AngularContact',
-      'CylindricalRoller','TaperedRoller','SpurGear','BevelGear','CrossedHelical',
-      'RackGear','RingGear','WormGear'];
-    for (const pf of pfxs) { if (p.includes(pf)) { g = pf; break; } }
-    if (!groups[g]) groups[g] = [];
-    groups[g].push(p);
-  });
-  for (const g of Object.keys(groups).sort()) {
-    const og = document.createElement('optgroup');
-    og.label = g + ' (' + groups[g].length + ')';
-    groups[g].forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; og.appendChild(o); });
-    sel.appendChild(og);
+  const COLORS = {"plane":"#4db8ff","cylinder":"#44cc44","sphere":"#ff44ff","cone":"#ff8844","torus":"#ffcc00","freeform":"#888888"};
+  function makeLegend(id) {
+    return Object.entries(COLORS).map(([n,c])=>`<div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:3px"><span style="width:12px;height:12px;border-radius:2px;background:${c}"></span><span style="color:#ccc;font-size:10px">${n}</span></div>`).join('');
   }
-  // Auto-infer random part
-  const allParts = parts;
-  const target = allParts[Math.floor(Math.random() * allParts.length)];
-  sel.value = target;
-  const stlResp = await fetch('/api/stl_raw/' + target);
-  const blob = await stlResp.blob();
-  runInference(blob, target + '.stl');
+  document.getElementById('leg0').innerHTML = makeLegend();
+  document.getElementById('leg1').innerHTML = makeLegend();
+  document.getElementById('v0').querySelector('.vlabel').textContent = `GAT Raw (${d.num_raw} groups)`;
+  document.getElementById('v1').querySelector('.vlabel').textContent = `MLP Merged (${d.num_merged} faces)`;
+  document.getElementById('loading').style.display='none';
 }
 
-// Infer button
-document.getElementById('btnInfer').addEventListener('click', async () => {
-  const target = document.getElementById('partSelect').value;
-  const stlResp = await fetch('/api/stl_raw/' + target);
-  const blob = await stlResp.blob();
-  runInference(blob, target + '.stl');
+init(0,'v0');init(1,'v1');
+window.addEventListener('resize',layout);
+document.getElementById('btnInfer').addEventListener('click',async()=>{
+  const p=document.getElementById('partSelect').value;if(!p)return;
+  const r=await fetch('/api/stl_raw/'+p);run(await r.blob(),p+'.stl');
 });
 
-initParts();
+(async()=>{
+  const r=await fetch('/api/parts');const parts=await r.json();
+  const sel=document.getElementById('partSelect');
+  parts.slice(0,5000).forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o)});
+  const first=parts[Math.floor(Math.random()*parts.length)];sel.value=first;
+  run(await (await fetch('/api/stl_raw/'+first)).blob(),first+'.stl');
+})();
 
-function animate() { requestAnimationFrame(animate); ctrl.update(); renderer.render(scene,cam); labelRenderer.render(scene,cam); }
-
-initScene(); animate();
-</script>
-</body>
-</html>
+function animate(){requestAnimationFrame(animate);renderers.forEach((r,i)=>r.render(scenes[i],cams[i]));}
+layout();animate();
+</script></body></html>

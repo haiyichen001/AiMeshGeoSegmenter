@@ -73,20 +73,29 @@ Model: 3-layer GAT (192 hidden, 4 heads, 695K params) with edge features, SWA, F
 
 ## Training Data
 
-## Training Data
+## Ultimate Goal: STL → STEP Reverse Engineering
 
 ```
-STEP -> label_faces.py -> per-face labels
-STL file -> per-triangle mesh
-      |
-KD-tree: map each STL triangle to nearest B-Rep face
-      |
-      v
-Per-triangle training data: (normal, area, center, face_label)
-      |
-      v
-GAT training on triangle adjacency graph
+STL file (triangle mesh)
+  │
+  ├─ GAT: per-triangle 6-class classification
+  ├─ MLP Edge: boundary detection
+  ├─ Connected Components + Vote: group triangles into faces
+  │
+  ▼
+Per-face numerical fitting:
+  ├─ Plane: RANSAC + least-squares
+  ├─ Cylinder: axis estimation + radius LSQ
+  ├─ Cone: apex + semi-angle fitting
+  ├─ Sphere: center + radius LSQ
+  ├─ Torus: axis + major/minor radius
+  └─ Freeform: B-Spline surface interpolation
+  │
+  ▼
+pythonOCC B-Rep construction → STEP output
 ```
+
+## Training Data
 
 ## Project Structure
 
