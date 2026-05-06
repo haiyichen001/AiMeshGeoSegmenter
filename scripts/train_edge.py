@@ -13,17 +13,13 @@ ROOT = Path(r"D:\AiMeshGeoSegmenter")
 LABEL_DIR = ROOT / "data" / "labels"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def compute_8feat(na, nb, ca, cb, area_a, area_b, span, edge_len=0, perim_a=0, perim_b=0):
+def compute_4feat(na, nb, ca, cb, area_a, area_b, span):
     dot = np.clip(np.dot(na, nb), -1, 1)
     angle = float(np.arccos(dot) * 180 / np.pi)
     area_ratio = min(area_a, area_b) / max(max(area_a, area_b), 1e-12)
     dist_rel = np.linalg.norm(ca - cb) / max(span, 1e-6)
     convex = float(np.dot(na, cb - ca))
-    edge_len_norm = edge_len / max(span, 1e-6)
-    perim_ratio = min(perim_a, perim_b) / max(max(perim_a, perim_b), 1e-12) if perim_a > 0 else 0.5
-    area_density = np.sqrt(max(area_a * area_b, 1e-12)) / max(edge_len if edge_len > 0 else np.linalg.norm(ca-cb), 1e-6)
-    angle_sin = float(np.sin(np.arccos(dot)))
-    return [angle, area_ratio, dist_rel, convex, edge_len_norm, perim_ratio, area_density, angle_sin]
+    return [angle, area_ratio, dist_rel, convex]
 
 
 def extract_training_data(label_file, max_pairs=30):
@@ -70,8 +66,8 @@ def extract_training_data(label_file, max_pairs=30):
             # Compute shared edge length
             shared = set(tris[ai]) & set(tris[bi])
             edge_len = np.linalg.norm(verts[list(shared)[0]] - verts[list(shared)[1]]) if len(shared) >= 2 else 0
-            feats = compute_8feat(normals[ai], normals[bi], centers[ai], centers[bi],
-                                   areas[ai], areas[bi], span, edge_len, perims[ai], perims[bi])
+            feats = compute_4feat(normals[ai], normals[bi], centers[ai], centers[bi],
+                                   areas[ai], areas[bi], span)
             positives.append(feats)
 
     # Negatives: boundary pairs between adjacent faces
@@ -101,7 +97,7 @@ def extract_training_data(label_file, max_pairs=30):
             n_pairs = min(5, min(len(an), len(bn)))
             for _ in range(n_pairs):
                 ai, bi = np.random.randint(len(an)), np.random.randint(len(bn))
-                feats = compute_8feat(an[ai], bn[bi], a_centers[ai], b_centers[bi],
+                feats = compute_4feat(an[ai], bn[bi], a_centers[ai], b_centers[bi],
                                        a_areas[ai], b_areas[bi], span)
                 negatives.append(feats)
 

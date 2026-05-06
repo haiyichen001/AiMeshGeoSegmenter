@@ -105,14 +105,10 @@ def merge_regions(faces, normals, pred_labels, angle_deg=5):
 
 
 def compute_edge_features(verts, faces, adj, normals, centers, areas, span):
-    """Compute 8-dim edge features matching v2 training."""
+    """Compute 4-dim edge features matching training."""
     n_edges = len(adj)
-    feats = np.zeros((n_edges, 8), dtype=np.float32)
+    feats = np.zeros((n_edges, 4), dtype=np.float32)
     if n_edges == 0: return feats
-    e1 = verts[faces[:,1]] - verts[faces[:,0]]
-    e2 = verts[faces[:,2]] - verts[faces[:,0]]
-    e3 = verts[faces[:,2]] - verts[faces[:,1]]
-    perims = np.linalg.norm(e1,axis=1) + np.linalg.norm(e2,axis=1) + np.linalg.norm(e3,axis=1)
     for ei, (a, b) in enumerate(adj):
         na, nb = normals[a], normals[b]
         ca, cb = centers[a], centers[b]
@@ -121,13 +117,6 @@ def compute_edge_features(verts, faces, adj, normals, centers, areas, span):
         feats[ei, 1] = min(areas[a], areas[b]) / max(max(areas[a], areas[b]), 1e-12)
         feats[ei, 2] = np.linalg.norm(ca - cb) / max(span, 1e-6)
         feats[ei, 3] = float(np.dot(na, cb - ca))
-        # Compute shared edge
-        shared = set(faces[a]) & set(faces[b])
-        edge_len = np.linalg.norm(verts[list(shared)[0]] - verts[list(shared)[1]]) if len(shared)>=2 else 0
-        feats[ei, 4] = edge_len / max(span, 1e-6)
-        feats[ei, 5] = min(perims[a], perims[b]) / max(max(perims[a], perims[b]), 1e-12) if perims[a]>0 else 0.5
-        feats[ei, 6] = np.sqrt(max(areas[a]*areas[b], 1e-12)) / max(edge_len if edge_len>0 else np.linalg.norm(ca-cb), 1e-6)
-        feats[ei, 7] = float(np.sin(np.arccos(dot)))
     return feats
 
 
@@ -139,17 +128,17 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, ve
     mean, std = np.array(ckpt['mean']), np.array(ckpt['std'])
 
     class EdgeMLP(nn.Module):
-        def __init__(self):
+        def __init__(self, in_dim):
             super().__init__()
             self.net = nn.Sequential(
-                nn.Linear(8, 64), nn.ReLU(), nn.Dropout(0.1),
+                nn.Linear(in_dim, 64), nn.ReLU(), nn.Dropout(0.1),
                 nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.1),
                 nn.Linear(32, 16), nn.ReLU(),
                 nn.Linear(16, 1))
         def forward(self, x):
             return self.net(x).squeeze(-1)
 
-    model = EdgeMLP()
+    model = EdgeMLP(len(mean))
     model.load_state_dict(ckpt['model'])
     model.eval()
 

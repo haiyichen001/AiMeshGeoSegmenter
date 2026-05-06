@@ -97,8 +97,8 @@ async function run(blob,name) {
   if(d.error){alert(d.error);document.getElementById('loading').style.display='none';return;}
   center=d.center;span=d.span;
   renderFaces(0,d.raw_faces,true);
-  renderFaces(1,d.mid_faces);
-  renderFaces(2,d.merged_faces);
+  renderFaces(1,d.mid_faces,true);
+  renderFaces(2,d.merged_faces,true);
   for(let i=0;i<N;i++){
     ctrls[i].target.set(...center);
     const dist=span*2.5;
