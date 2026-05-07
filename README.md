@@ -190,10 +190,17 @@ Infer page shows 3 views side-by-side:
 | MLP Input | 4-dim: dihedral angle, area ratio, dist, convexity |
 | Training | AMP + Focal Loss(γ=2) + DropEdge 15% + SWA + Cosine LR
 
+## Next
+
+- [ ] Retrain GAT with per-epoch logging (3-seed × 3-fold = 9 curves)
+- [ ] Add GAT training curves to Model page
+- [ ] Fix sphere label quality (SPHERE_FIT_TOL 0.02 → 0.01)
+
 ## Status
 
 - Dataset: 19,902 STEP/STL pairs, ~200K annotated faces
-- Model: 919K params, 87.88% ensemble test accuracy
+- GAT: 919K params, 87.88% ensemble test accuracy
+- MLP Edge: 3-seed ensemble, 99.3% accuracy
 - GPU: NVIDIA RTX 5060 Ti, 16 GB VRAM
 
 ## License
