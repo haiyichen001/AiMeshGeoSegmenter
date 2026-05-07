@@ -24,6 +24,8 @@ def api_model_log(name):
         path = DATA / "models" / "train_log.json"
     elif name == "ensemble":
         path = DATA / "models" / "ensemble_report.json"
+    elif name == "mlp":
+        path = DATA / "models" / "mlp_train_log.json"
     else:
         path = DATA / "models" / f"{name}_train_log.json"
     if not path.exists():

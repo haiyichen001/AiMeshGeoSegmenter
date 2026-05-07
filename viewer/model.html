@@ -1,31 +1,32 @@
 <!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><title>Model</title>
 <link rel="stylesheet" href="/theme.css"><style>
 body { overflow-y: auto; }
-.dash { max-width: 1500px; margin: 52px auto 48px; padding: 0 28px; display: flex; flex-direction: column; gap: 22px; }
-h2 { font-size: 20px; margin: 0 0 4px; color: var(--accent); }
-h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.2px; margin: 20px 0 8px; }
-.row2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; }
-.kpi { display: flex; gap: 10px; flex-wrap: wrap; }
-.kpi>div { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; text-align: center; min-width: 80px; }
-.kpi .n { font-size: 26px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); }
+.dash { max-width: 1500px; margin: 52px auto 48px; padding: 0 24px; }
+h2 { font-size: 18px; color: var(--accent); margin: 0 0 8px; }
+h3 { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin: 16px 0 6px; }
+.kpi { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.kpi>div { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 7px; padding: 10px 14px; text-align: center; min-width: 60px; }
+.kpi .n { font-size: 22px; font-weight: 700; font-family: var(--font-mono); color: var(--accent); }
 .kpi .n.g { color: #22c55e; }
-.kpi .lab { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 3px; }
-.bar { height: 7px; border-radius: 4px; background: var(--bg-secondary); overflow: hidden; margin: 2px 0; }
+.kpi .n.o { color: #f59e0b; }
+.kpi .l { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 16px; }
+.bar { height: 7px; border-radius: 4px; background: var(--bg-secondary); overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 4px; }
-.cr { display: flex; align-items: center; gap: 10px; margin: 5px 0; }
-.cr .nm { width: 70px; font-size: 12px; font-family: var(--font-mono); }
+.cr { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.cr .nm { width: 64px; font-size: 11px; font-family: var(--font-mono); }
 .cr .bw { flex:1; }
-.cr .pv { width: 52px; text-align: right; font-size: 12px; font-family: var(--font-mono); }
-.fg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.fc { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; padding: 12px 10px; text-align: center; }
-.fc .sd { font-size: 9px; color: var(--text-muted); margin-bottom: 4px; }
-.fc .fv { font-size: 16px; font-weight: 700; font-family: var(--font-mono); }
-.fc .fl { font-size: 10px; color: var(--text-secondary); }
+.cr .pv { width: 48px; text-align: right; font-size: 11px; font-family: var(--font-mono); }
+.fg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.fc { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; padding: 8px; text-align: center; }
+.fc .fv { font-size: 14px; font-weight: 700; font-family: var(--font-mono); }
+.fc .fl { font-size: 9px; color: var(--text-secondary); }
+table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 6px 0; }
+td { padding: 4px 8px; border-bottom: 1px solid var(--bg-tertiary); font-family: var(--font-mono); }
+td:first-child { color: var(--text-secondary); font-family: inherit; width: 90px; }
+td+td { color: var(--text-primary); }
 .nodata { color: var(--text-muted); padding: 60px; text-align: center; }
-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
-th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--border); }
-td { padding: 6px 10px; color: var(--text-primary); border-bottom: 1px solid var(--bg-tertiary); font-family: var(--font-mono); }
-td:first-child { color: var(--text-secondary); font-family: inherit; }
+svg text { font-family: system-ui, sans-serif; }
 </style></head><body>
 <div id="navbar">
   <a href="/">Compare</a><a href="/labels">Labels</a>
@@ -36,174 +37,137 @@ td:first-child { color: var(--text-secondary); font-family: inherit; }
 const C = ['#06b6d4','#f59e0b','#22c55e','#ef4444','#8b5cf6','#ec4899'];
 const TM = getComputedStyle(document.documentElement).getPropertyValue('--text-muted')?.trim()||'#666';
 
-function render(gat, ens) {
-  if (!gat && !ens) return '<div class="nodata">No training data.</div>';
+function render(gat, ens, mlp) {
+  if (!ens) return '<div class="nodata">No training data.</div>';
   let h = '';
 
-  // === TOP METRICS ===
+  // ── TOP: Pipeline Diagram ──
+  h += `<div style="text-align:center;margin-bottom:24px">`;
+  h += `<svg viewBox="0 0 860 100" style="width:100%;max-width:860px"><defs><marker id="a" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0,1 L5,2.5 L0,4 Z" fill="#64748b"/></marker></defs>
+    <rect x="5" y="25" width="100" height="46" rx="6" fill="#1e293b" stroke="#475569" stroke-width="1"/>
+    <text x="55" y="44" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600">STL Mesh</text>
+    <text x="55" y="60" text-anchor="middle" fill="#64748b" font-size="10">triangles</text>
+    <line x1="105" y1="48" x2="145" y2="48" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+    <rect x="150" y="10" width="200" height="72" rx="6" fill="#0c1929" stroke="#06b6d4" stroke-width="1.5"/>
+    <text x="250" y="30" text-anchor="middle" fill="#06b6d4" font-size="13" font-weight="700">GAT Classifier</text>
+    <text x="250" y="46" text-anchor="middle" fill="#94a3b8" font-size="10">3-layer + JK, 192hx4</text>
+    <text x="250" y="60" text-anchor="middle" fill="#94a3b8" font-size="10">26-dim feat, 919K params</text>
+    <text x="250" y="76" text-anchor="middle" fill="#06b6d4" font-size="10">87.9% test</text>
+    <line x1="350" y1="48" x2="390" y2="48" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+    <rect x="395" y="15" width="160" height="62" rx="6" fill="#0c1929" stroke="#f59e0b" stroke-width="1.5"/>
+    <text x="475" y="34" text-anchor="middle" fill="#f59e0b" font-size="13" font-weight="700">MLP Edge</text>
+    <text x="475" y="50" text-anchor="middle" fill="#94a3b8" font-size="10">4→64→32→16→1</text>
+    <text x="475" y="64" text-anchor="middle" fill="#f59e0b" font-size="10">95.4% test, 2.9K</text>
+    <line x1="555" y1="48" x2="595" y2="48" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+    <rect x="600" y="22" width="110" height="46" rx="6" fill="#0c1929" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="655" y="40" text-anchor="middle" fill="#22c55e" font-size="11" font-weight="700">CC + Vote</text>
+    <text x="655" y="56" text-anchor="middle" fill="#22c55e" font-size="10">area-weighted</text>
+    <line x1="710" y1="48" x2="755" y2="48" stroke="#64748b" stroke-width="1.5" marker-end="url(#a)"/>
+
+    <text x="785" y="30" text-anchor="middle" fill="#8b5cf6" font-size="11" font-weight="700">6-class</text>
+    <text x="785" y="48" text-anchor="middle" fill="#8b5cf6" font-size="11" font-weight="700">per-face</text>
+    <text x="785" y="66" text-anchor="middle" fill="#64748b" font-size="10">output</text>
+  </svg></div>`;
+
+  // ── TWO COLUMNS ──
+  h += '<div class="cols">';
+
+  // LEFT: GAT
+  h += '<div class="card" style="padding:16px"><h2>GAT Classifier</h2>';
   h += '<div class="kpi">';
-  if (ens && ens.test_acc != null) h += `<div><div class="n g">${(ens.test_acc*100).toFixed(1)}%</div><div class="lab">Test Acc (ensemble)</div></div>`;
-  if (gat && gat.mean != null) h += `<div><div class="n">${(gat.mean*100).toFixed(1)}%</div><div class="lab">CV Mean</div></div>`;
-  if (gat && gat.k) h += `<div><div class="n">${gat.k}-fold</div><div class="lab">Cross Val</div></div>`;
-  if (gat && gat.params) h += `<div><div class="n">${(gat.params/1000).toFixed(0)}K</div><div class="lab">Params</div></div>`;
-  if (ens && ens.train_time_s) h += `<div><div class="n">${Math.round(ens.train_time_s/60)}min</div><div class="lab">Train Time</div></div>`;
+  if (ens.test_acc != null) h += `<div><div class="n g">${(ens.test_acc*100).toFixed(1)}%</div><div class="l">Test Acc</div></div>`;
+  if (gat && gat.mean != null) h += `<div><div class="n">${(gat.mean*100).toFixed(1)}%</div><div class="l">CV Mean</div></div>`;
+  if (gat && gat.params) h += `<div><div class="n">${(gat.params/1000).toFixed(0)}K</div><div class="l">Params</div></div>`;
+  if (ens.train_time_s) h += `<div><div class="n o">${Math.round(ens.train_time_s/60)}m</div><div class="l">Time</div></div>`;
   h += '</div>';
 
-  // === TWO COLUMNS ===
-  h += '<div class="row2">';
-
-  // LEFT: Pipeline SVG + Architecture table
-  h += '<div>';
-
-  // Neural network diagram
-  h += '<h3>Architecture</h3>';
-  h += `<svg viewBox="0 0 620 340" style="width:100%;background:#0f172a;border-radius:10px;border:1px solid #1e293b">
-    <defs>
-      <marker id="a" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,1 L6,3 L0,5 Z" fill="#475569"/></marker>
-    </defs>
-    <!-- GAT input layer -->
-    <rect x="8" y="20" width="52" height="80" rx="3" fill="none" stroke="#06b6d4" stroke-width="1" opacity=".4"/>
-    <text x="34" y="108" text-anchor="middle" fill="#64748b" font-size="9">26-dim</text>
-    <circle cx="34" cy="40" r="3" fill="#06b6d4" opacity=".5"/><circle cx="34" cy="52" r="3" fill="#06b6d4" opacity=".5"/>
-    <circle cx="34" cy="64" r="3" fill="#06b6d4" opacity=".5"/><circle cx="34" cy="76" r="3" fill="#06b6d4" opacity=".5"/>
-    <circle cx="34" cy="88" r="3" fill="#06b6d4" opacity=".5"/>
-
-    <!-- GAT Layer 1 -->
-    <line x1="60" y1="60" x2="100" y2="60" stroke="#475569" stroke-width="1.5" marker-end="url(#a)"/>
-    <rect x="104" y="12" width="60" height="96" rx="4" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
-    <text x="134" y="116" text-anchor="middle" fill="#64748b" font-size="9">GAT 1</text>
-    <text x="134" y="126" text-anchor="middle" fill="#64748b" font-size="8">192h x4</text>
-    <circle cx="134" cy="30" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="122" cy="42" r="2.5" fill="#06b6d4" opacity=".6"/><circle cx="146" cy="42" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="122" cy="56" r="2.5" fill="#06b6d4" opacity=".6"/><circle cx="146" cy="56" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="134" cy="70" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="122" cy="82" r="2.5" fill="#06b6d4" opacity=".6"/><circle cx="146" cy="82" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="134" cy="96" r="2.5" fill="#06b6d4" opacity=".6"/>
-
-    <!-- GAT Layer 2 -->
-    <line x1="164" y1="60" x2="204" y2="60" stroke="#475569" stroke-width="1.5" marker-end="url(#a)"/>
-    <rect x="208" y="12" width="60" height="96" rx="4" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
-    <text x="238" y="116" text-anchor="middle" fill="#64748b" font-size="9">GAT 2</text>
-    <text x="238" y="126" text-anchor="middle" fill="#64748b" font-size="8">192h x4</text>
-    <circle cx="238" cy="30" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="226" cy="42" r="2.5" fill="#06b6d4" opacity=".6"/><circle cx="250" cy="42" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="226" cy="56" r="2.5" fill="#06b6d4" opacity=".6"/><circle cx="250" cy="56" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="238" cy="70" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="226" cy="82" r="2.5" fill="#06b6d4" opacity=".6"/><circle cx="250" cy="82" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="238" cy="96" r="2.5" fill="#06b6d4" opacity=".6"/>
-
-    <!-- GAT Layer 3 -->
-    <line x1="268" y1="60" x2="308" y2="60" stroke="#475569" stroke-width="1.5" marker-end="url(#a)"/>
-    <rect x="312" y="18" width="50" height="84" rx="4" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
-    <text x="337" y="110" text-anchor="middle" fill="#64748b" font-size="9">GAT 3</text>
-    <text x="337" y="120" text-anchor="middle" fill="#64748b" font-size="8">96h x1</text>
-    <circle cx="337" cy="34" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="337" cy="48" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="337" cy="62" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="337" cy="76" r="2.5" fill="#06b6d4" opacity=".6"/>
-    <circle cx="337" cy="90" r="2.5" fill="#06b6d4" opacity=".6"/>
-
-    <!-- JK concatenation -->
-    <text x="440" y="36" fill="#22c55e" font-size="10" font-weight="600">Jumping Knowledge</text>
-    <path d="M 100 12 Q 300 -20 362 18" fill="none" stroke="#22c55e" stroke-width="1" stroke-dasharray="3" opacity=".4"/>
-    <path d="M 204 12 Q 300 -20 362 18" fill="none" stroke="#22c55e" stroke-width="1" stroke-dasharray="3" opacity=".4"/>
-    <path d="M 362 18 Q 400 -10 430 8" fill="none" stroke="#22c55e" stroke-width="1" marker-end="url(#a)"/>
-
-    <!-- MLP output head -->
-    <rect x="440" y="50" width="80" height="40" rx="6" fill="#0c1929" stroke="#06b6d4" stroke-width="1.5"/>
-    <text x="480" y="66" text-anchor="middle" fill="#e2e8f0" font-size="11" font-weight="600">MLP Head</text>
-    <text x="480" y="80" text-anchor="middle" fill="#64748b" font-size="9">6-class</text>
-
-    <!-- ===== EDGE MLP (bottom) ===== -->
-    <rect x="8" y="190" width="160" height="38" rx="6" fill="#0c1929" stroke="#f59e0b" stroke-width="1.5"/>
-    <text x="88" y="206" text-anchor="middle" fill="#f59e0b" font-size="11" font-weight="600">MLP Edge Classifier</text>
-    <text x="88" y="220" text-anchor="middle" fill="#64748b" font-size="9">4-dim → 32 → 16 → 1</text>
-
-    <!-- CC + Vote -->
-    <line x1="168" y1="209" x2="220" y2="209" stroke="#475569" stroke-width="1.5" marker-end="url(#a)"/>
-    <rect x="224" y="190" width="120" height="38" rx="6" fill="#0c1929" stroke="#22c55e" stroke-width="1.5"/>
-    <text x="284" y="206" text-anchor="middle" fill="#22c55e" font-size="11" font-weight="600">CC + Vote</text>
-    <text x="284" y="220" text-anchor="middle" fill="#64748b" font-size="9">majority label</text>
-
-    <!-- Output -->
-    <line x1="344" y1="209" x2="396" y2="209" stroke="#475569" stroke-width="1.5" marker-end="url(#a)"/>
-    <text x="408" y="214" fill="#e2e8f0" font-size="12" font-weight="600">6-class per-face</text>
-
-    <!-- Labels row -->
-    <rect x="260" y="270" width="64" height="18" rx="3" fill="#4db8ff" opacity=".85"/><text x="292" y="283" text-anchor="middle" fill="#000" font-size="10" font-weight="700">plane</text>
-    <rect x="330" y="270" width="74" height="18" rx="3" fill="#44cc44" opacity=".85"/><text x="367" y="283" text-anchor="middle" fill="#000" font-size="10" font-weight="700">cylinder</text>
-    <rect x="410" y="270" width="64" height="18" rx="3" fill="#ff44ff" opacity=".85"/><text x="442" y="283" text-anchor="middle" fill="#000" font-size="10" font-weight="700">sphere</text>
-    <rect x="480" y="270" width="56" height="18" rx="3" fill="#ff8844" opacity=".85"/><text x="508" y="283" text-anchor="middle" fill="#000" font-size="10" font-weight="700">cone</text>
-    <rect x="260" y="296" width="56" height="18" rx="3" fill="#ffcc00" opacity=".85"/><text x="288" y="309" text-anchor="middle" fill="#000" font-size="10" font-weight="700">torus</text>
-    <rect x="322" y="296" width="80" height="18" rx="3" fill="#888888" opacity=".85"/><text x="362" y="309" text-anchor="middle" fill="#fff" font-size="10" font-weight="700">freeform</text>
-
-    <!-- Detail tables -->
-    <text x="8" y="328" fill="#64748b" font-size="9">GAT: 3-layer + JK, 192h x4 heads, 26-dim in, 3-dim edge feat</text>
-    <text x="8" y="338" fill="#64748b" font-size="9">MLP: 4→32→16→1, 4-dim edge feat, 95.2% acc, 705 params</text>
-  </svg>`;
-
-  // Architecture details table
-  h += '<h3>Training Config</h3><table>';
-  h += '<tr><td>Loss</td><td>Focal Loss (γ=2.0) with class-balanced weights</td></tr>';
-  h += '<tr><td>Optimizer</td><td>AdamW, lr=0.002, weight_decay=1e-4</td></tr>';
-  h += '<tr><td>Schedule</td><td>Warmup 25 ep + Cosine Annealing</td></tr>';
-  h += '<tr><td>Regularization</td><td>DropEdge 15%, Dropout 0.3, SWA</td></tr>';
-  h += '<tr><td>Precision</td><td>AMP mixed precision (float16)</td></tr>';
-  h += '<tr><td>Batch</td><td>108 graphs, GPU-direct (zero CPU transfer)</td></tr>';
-  h += '<tr><td>Data</td><td>13,931 train / 2,985 val / 2,986 test (70/15/15)</td></tr>';
+  h += '<h3>Config</h3><table>';
+  h += '<tr><td>Layers</td><td>3 GATConv + JK, 192 hidden, 4 heads</td></tr>';
+  h += '<tr><td>Input</td><td>26-dim: normals(3) + Fourier(12) + geom(11)</td></tr>';
+  h += '<tr><td>Edge feat</td><td>3-dim: dihedral, rel length, convexity</td></tr>';
+  h += '<tr><td>Loss</td><td>Focal Loss (γ=2) + class weights</td></tr>';
+  h += '<tr><td>Training</td><td>AMP + DropEdge 15% + SWA + Cosine LR</td></tr>';
   h += '</table>';
 
-  h += '<h3>Edge Classifier (MLP)</h3><table>';
-  h += '<tr><td>Arch</td><td>8→64→32→16→1, 3.2K params</td></tr>';
-  h += '<tr><td>Features</td><td>8-dim: angle, area_ratio, dist, convex, edge_len, perim_ratio, density, sin_angle</td></tr>';
-  h += '<tr><td>Accuracy</td><td>100.0% test, threshold=0.20</td></tr>';
-  h += '</table>';
-
-  h += '</div>'; // end left
-
-  // RIGHT: Per-class + Folds
-  h += '<div>';
-  h += '<h3>Per-Class Accuracy</h3>';
-  if (ens && ens.per_class) {
-    Object.entries(ens.per_class).forEach(([name, info]) => {
-      const pct = (info.acc*100).toFixed(1);
-      const color = {'plane':'#4db8ff','cylinder':'#44cc44','sphere':'#ff44ff','cone':'#ff8844','torus':'#ffcc00','freeform':'#888888'}[name]||'#ccc';
-      h += `<div class="cr"><span class="nm" style="color:${color}">${name}</span><span class="bw">${bar(info.acc, 1, color)}</span><span class="pv" style="color:${color}">${pct}%</span></div>`;
+  h += '<h3>Per-Class</h3>';
+  if (ens.per_class) {
+    Object.entries(ens.per_class).forEach(([n,i])=>{
+      const p=(i.acc*100).toFixed(1);
+      const cl={'plane':'#4db8ff','cylinder':'#44cc44','sphere':'#ff44ff','cone':'#ff8844','torus':'#ffcc00','freeform':'#888888'}[n]||'#ccc';
+      h += `<div class="cr"><span class="nm" style="color:${cl}">${n}</span><span class="bw"><div class="bar"><div class="bar-fill" style="width:${Math.max(2,i.acc*100)}%;background:${cl}"></div></div></span><span class="pv" style="color:${cl}">${p}%</span></div>`;
     });
   }
 
-  h += '<h3>Fold Results (3 seeds x3 folds)</h3>';
-  if (ens && ens.fold_results) {
-    const seeds = [...new Set(ens.fold_results.map(f=>f.seed))].sort();
-    seeds.forEach(seed => {
-      const folds = ens.fold_results.filter(f=>f.seed===seed);
-      const avg = folds.reduce((s,f)=>s+f.best_val,0)/folds.length;
-      h += `<div style="margin-bottom:16px"><div style="font-size:10px;color:${TM};margin-bottom:6px">Seed ${seed} — avg ${(avg*100).toFixed(1)}%</div>`;
-      h += '<div class="fg">';
-      folds.forEach(f=>{
-        h += `<div class="fc"><div class="sd">Fold ${f.fold}</div><div class="fv" style="color:${C[f.fold%6]}">${(f.best_val*100).toFixed(1)}%</div></div>`;
-      });
-      h += '</div></div>';
+  h += '<h3>Folds (3 seeds x3)</h3><div class="fg">';
+  if (ens.fold_results) {
+    ens.fold_results.forEach(f=>{
+      h += `<div class="fc"><div class="fl">S${f.seed}F${f.fold}</div><div class="fv" style="color:${C[f.fold%6]}">${(f.best_val*100).toFixed(1)}%</div></div>`;
     });
+  }
+  h += '</div></div>'; // end left
+
+  // RIGHT: MLP
+  h += '<div class="card" style="padding:16px"><h2>MLP Edge Classifier</h2>';
+  h += '<div class="kpi">';
+  if (mlp && mlp.best_acc != null) h += `<div><div class="n g">${(mlp.best_acc*100).toFixed(1)}%</div><div class="l">Accuracy</div></div>`;
+  if (mlp && mlp.params) h += `<div><div class="n">${(mlp.params/1000).toFixed(1)}K</div><div class="l">Params</div></div>`;
+  if (mlp && mlp.threshold) h += `<div><div class="n">${mlp.threshold.toFixed(2)}</div><div class="l">Threshold</div></div>`;
+  h += '</div>';
+
+  h += '<h3>Config</h3><table>';
+  h += '<tr><td>Layers</td><td>4→64→32→16→1, Dropout 0.1</td></tr>';
+  h += '<tr><td>Input</td><td>4-dim: angle, area ratio, dist, convexity</td></tr>';
+  h += '<tr><td>Output</td><td>Binary: same face (1) or boundary (0)</td></tr>';
+  h += '<tr><td>Optimizer</td><td>Adam, lr=0.001, BS=8192, 50 epochs</td></tr>';
+  h += '</table>';
+
+  // MLP Loss curve
+  if (mlp && mlp.history && mlp.history.loss) {
+    h += '<h3>Training Curve</h3>';
+    const loss = mlp.history.loss, acc = mlp.history.acc, n = loss.length;
+    h += `<svg viewBox="0 0 600 180" style="width:100%;background:var(--bg-tertiary);border-radius:6px"><defs><marker id="m" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0,1 L6,3 L0,5 Z" fill="#64748b"/></marker></defs>`;
+    // Grid
+    for (let i=0;i<=4;i++) { const y=16+36*i; h+=`<line x1="50" y1="${y}" x2="580" y2="${y}" stroke="var(--bg-secondary)" stroke-width="0.5"/>`; }
+    // Loss scale (left)
+    const lmax=Math.max(...loss), lmin=Math.min(...loss), lr=lmax-lmin||1;
+    const lys=v=>16+144*(1-(v-lmin)/lr);
+    // Acc scale (right)
+    const amax=Math.max(...acc), amin=Math.min(...acc), ar=amax-amin||1;
+    // X axis
+    const xs=i=>50+(530/Math.max(n-1,1))*i;
+    for (let i=0;i<n;i+=Math.max(1,Math.floor(n/6))) h+=`<text x="${xs(i)}" y="176" fill="#64748b" font-size="9" text-anchor="middle">${i+1}</text>`;
+    // Y labels
+    for (let i=0;i<=4;i++) { const y=16+36*i, v=lmin+(lmax-lmin)*(4-i)/4; h+=`<text x="46" y="${y+4}" fill="#f97316" font-size="9" text-anchor="end">${v.toFixed(2)}</text>`; }
+    // Loss line
+    let path=''; loss.forEach((v,i)=>{ path+=(i===0?'M':'L')+xs(i).toFixed(1)+','+lys(v).toFixed(1); });
+    h+=`<path d="${path}" fill="none" stroke="#f97316" stroke-width="2"/>`;
+    // Acc line (right Y)
+    const ays=v=>16+144*(1-(v-amin)/ar);
+    for (let i=0;i<=4;i++) { const y=16+36*i, v=amin+(amax-amin)*(4-i)/4; h+=`<text x="584" y="${y+4}" fill="#22c55e" font-size="9" text-anchor="start">${(v*100).toFixed(0)}%</text>`; }
+    let apath=''; acc.forEach((v,i)=>{ apath+=(i===0?'M':'L')+xs(i).toFixed(1)+','+ays(v).toFixed(1); });
+    h+=`<path d="${apath}" fill="none" stroke="#22c55e" stroke-width="2" stroke-dasharray="4,2"/>`;
+    // Legend dots
+    h+=`<circle cx="60" cy="8" r="3" fill="#f97316"/><text x="68" y="12" fill="#94a3b8" font-size="9">Loss</text>`;
+    h+=`<circle cx="120" cy="8" r="3" fill="#22c55e"/><text x="128" y="12" fill="#94a3b8" font-size="9">Acc</text>`;
+    h += '</svg>';
   }
   h += '</div>'; // end right
-  h += '</div>'; // end row2
 
-  function bar(v, max, color) {
-    const pct = Math.max(2, (v/max)*100);
-    return `<div class="bar"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div>`;
-  }
-
-  return '<div class="card" style="padding:22px">'+h+'</div>';
+  h += '</div>'; // end cols
+  return h;
 }
 
 (async () => {
   try {
-    const [r1, r2] = await Promise.all([
+    const [rg, re, rm] = await Promise.all([
       fetch('/api/model_log/gat').then(r=>r.ok?r.json():null),
-      fetch('/api/model_log/ensemble').then(r=>r.ok?r.json():null)
+      fetch('/api/model_log/ensemble').then(r=>r.ok?r.json():null),
+      fetch('/api/model_log/mlp').then(r=>r.ok?r.json():null)
     ]);
-    document.getElementById('root').innerHTML = render(r1, r2);
+    document.getElementById('root').innerHTML = render(rg, re, rm);
   } catch {
     document.getElementById('root').innerHTML = '<div class="nodata">Failed to load.</div>';
   }
