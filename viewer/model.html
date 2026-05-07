@@ -133,15 +133,15 @@ function render(gat, ens, mlp) {
   if (mlp && mlp.histories && mlp.histories.length > 0) {
     h += '<h3>Training Curve</h3>';
     const LCOL = '#f97316', ACOL = '#22c55e';
-    mlp.histories.forEach((h,si)=>{
-      const loss=h.history.loss, acc=h.history.acc, n=loss.length;
+    mlp.histories.forEach((mh,si)=>{
+      const loss=mh.history.loss, acc=mh.history.acc, n=loss.length;
       if (n<2) return;
       let lmax=-Infinity,lmin=Infinity,amax=-Infinity,amin=Infinity;
       loss.forEach(v=>{if(v<lmin)lmin=v;if(v>lmax)lmax=v;});
       acc.forEach(v=>{if(v<amin)amin=v;if(v>amax)amax=v;});
       lmax*=1.05;lmin*=0.95; amax*=1.02;amin*=0.95;
       const lr=lmax-lmin||1, ar=amax-amin||1;
-      h+=`<div style="font-size:10px;color:var(--text-muted);margin:8px 0 2px">Model ${si+1} (seed ${h.seed}) — best acc ${(h.best_acc*100).toFixed(1)}%</div>`;
+      h+=`<div style="font-size:10px;color:var(--text-muted);margin:8px 0 2px">Model ${si+1} (seed ${mh.seed}) — best acc ${(mh.best_acc*100).toFixed(1)}%</div>`;
       h+=`<svg viewBox="0 0 600 140" style="width:100%;background:var(--bg-tertiary);border-radius:4px">`;
       const M={t:14,r:50,b:20,l:42}, pw=600-M.l-M.r, ph=140-M.t-M.b;
       const lys=v=>M.t+ph*(1-(v-lmin)/lr);
