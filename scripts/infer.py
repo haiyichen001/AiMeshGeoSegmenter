@@ -162,7 +162,7 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, ve
             probs = torch.sigmoid(m(torch.tensor(feats_norm))).numpy()
         edge_probs.append(probs)
     avg_probs = np.mean(edge_probs, axis=0)
-    edge_pred = (avg_probs > 0.5).numpy()
+    edge_pred = (avg_probs > 0.5)
 
     nbrs = [[] for _ in range(len(faces))]
     for (a, b), same in zip(adj, edge_pred):
