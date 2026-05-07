@@ -379,10 +379,11 @@ def process_one(step_path):
                 if ok_pl and rel_pl < PLANE_FIT_TOL:
                     f["label"] = "plane"; label_dist["plane"] += 1; continue
 
-                # 2. Check if actually spherical
-                ok_sp, c_sp, r_sp, rel_sp = try_fit_sphere(verts)
-                if ok_sp and rel_sp < SPHERE_FIT_TOL:
-                    f["label"] = "sphere"; label_dist["sphere"] += 1; continue
+                # 2. Check if actually spherical (skip Extrusion - can never be a sphere)
+                if occ != "Extrusion":
+                    ok_sp, c_sp, r_sp, rel_sp = try_fit_sphere(verts)
+                    if ok_sp and rel_sp < SPHERE_FIT_TOL:
+                        f["label"] = "sphere"; label_dist["sphere"] += 1; continue
 
                 f["label"] = "freeform"; label_dist["freeform"] += 1
             else:

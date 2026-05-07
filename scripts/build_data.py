@@ -216,16 +216,17 @@ def process_one(step_path):
                         if rms_pl / max(span, 1e-6) < 1e-4:
                             base = "plane"
                         else:
-                            # Try sphere
-                            A=np.column_stack([2*pts, np.ones(len(pts))])
-                            b=(pts**2).sum(axis=1)
-                            try:
-                                x,_,_,_=np.linalg.lstsq(A,b,rcond=None)
-                                c=x[:3]; r2=x[3]+np.dot(c,c)
-                                if r2>0:
-                                    r=np.sqrt(r2); dists=np.abs(np.linalg.norm(pts-c,axis=1)-r)
-                                    if np.sqrt((dists**2).mean())/max(r,1e-6)<0.005: base="sphere"
-                            except: pass
+                            # Try sphere (skip Extrusion - can never be a sphere)
+                            if occ != GeomAbs_SurfaceOfExtrusion:
+                                A=np.column_stack([2*pts, np.ones(len(pts))])
+                                b=(pts**2).sum(axis=1)
+                                try:
+                                    x,_,_,_=np.linalg.lstsq(A,b,rcond=None)
+                                    c=x[:3]; r2=x[3]+np.dot(c,c)
+                                    if r2>0:
+                                        r=np.sqrt(r2); dists=np.abs(np.linalg.norm(pts-c,axis=1)-r)
+                                        if np.sqrt((dists**2).mean())/max(r,1e-6)<0.005: base="sphere"
+                                except: pass
             face_labels[i]=L2I[base]
 
         # Unified mesh: collect all triangles with face IDs
