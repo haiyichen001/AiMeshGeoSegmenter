@@ -86,7 +86,7 @@ function renderFaces(gi, data, edgeMode) {
       if (f.boundary_lines && f.boundary_lines.length > 0) {
         const bgeo=new THREE.BufferGeometry();
         bgeo.setAttribute('position',new THREE.Float32BufferAttribute(f.boundary_lines,3));
-        const bline=new THREE.LineSegments(bgeo, new THREE.LineBasicMaterial({color:0x000000,linewidth:2}));
+        const bline=new THREE.LineSegments(bgeo, new THREE.LineBasicMaterial({color:0xffffff,linewidth:1,transparent:true,opacity:0.8}));
         groups[gi].add(bline);
       }
     } else {
@@ -102,7 +102,7 @@ function renderFaces(gi, data, edgeMode) {
         groups[gi].add(wire);
       } else if (edgeMode === 'boundary') {
         const edges=new THREE.EdgesGeometry(geo, 30);
-        const line=new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0x000000,linewidth:1}));
+        const line=new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0xffffff,linewidth:1,transparent:true,opacity:0.7}));
         groups[gi].add(line);
       }
     }
