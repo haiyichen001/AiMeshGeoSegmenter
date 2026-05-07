@@ -301,53 +301,13 @@ def predict_stl(stl_path, model_paths=None, refine=True):
         raw_faces_out.append({"vertices":loc_verts,"triangles":loc_tris,"type":name,"color":COLORS[name],"center":[cx,cy,cz]})
 
 
-    # Middle panel: GAT raw per-triangle colors + MLP boundary lines
-    mid_faces_out = []
+    # MLP merge + vote: per-face final labels
+    merged_faces_out = []
     if refine:
         span = float(max(verts.max(axis=0)-verts.min(axis=0)))
         regions = mlp_merge_regions(faces, normals, centers, areas, span,
                                      adj, pred, verts=verts, return_regions=True)
-        # Build per-triangle vertex colors for the full mesh
-        mid_verts = []; mid_colors = []; mid_tris = []
-        for ti, tri in enumerate(faces):
-            li = int(pred[ti])
-            hex_color = COLORS.get(LABEL_NAMES[li], "#888888")
-            r, g, b = int(hex_color[1:3],16)/255, int(hex_color[3:5],16)/255, int(hex_color[5:7],16)/255
-            bi = len(mid_verts) // 3
-            for v in tri:
-                mid_verts.extend(verts[v].tolist())
-                mid_colors.extend([r, g, b])
-            mid_tris.extend([bi, bi+1, bi+2])
-        # Collect boundary edges between regions
-        boundary_edges = set()
-        if len(adj) > 0:
-            nbrs = [[] for _ in range(len(faces))]
-            for a, b in adj:
-                nbrs[a].append(b); nbrs[b].append(a)
-            # Determine which region each triangle belongs to
-            tri_to_region = np.zeros(len(faces), dtype=np.int32)
-            for ri, (region_tris, _) in enumerate(regions):
-                for ti in region_tris:
-                    tri_to_region[ti] = ri
-            for a, b in adj:
-                if tri_to_region[a] != tri_to_region[b]:
-                    boundary_edges.add((min(a,b), max(a,b)))
-        # Build boundary line vertices
-        bline_verts = []
-        for (a, b) in boundary_edges:
-            ca = centers[a]; cb = centers[b]
-            bline_verts.extend([ca[0], ca[1], ca[2], cb[0], cb[1], cb[2]])
-        mid_faces_out = [{
-            "vertices": [float(v) for v in mid_verts],
-            "triangles": mid_tris,
-            "face_colors": [float(c) for c in mid_colors],
-            "type": "mid_raw",
-            "color": "#888888",
-            "center": centers.mean(axis=0).tolist(),
-            "boundary_lines": [float(v) for v in bline_verts]
-        }]
-
-        # Right panel: MLP regions WITH voting
+        for region_tris, region_label in regions:
         merged_faces_out = []
         for region_tris, region_label in regions:
             tris = faces[region_tris]
@@ -368,12 +328,10 @@ def predict_stl(stl_path, model_paths=None, refine=True):
     span = float(max(verts.max(axis=0)-verts.min(axis=0)))
     return {
         "raw_faces": raw_faces_out,
-        "mid_faces": mid_faces_out if refine else raw_faces_out,
         "merged_faces": merged_faces_out,
         "center": centers.mean(axis=0).tolist(),
         "span": span,
         "num_raw": len(raw_faces_out),
-        "num_mid": len(mid_faces_out) if refine else len(raw_faces_out),
         "num_merged": len(merged_faces_out)
     }
 

@@ -22,12 +22,8 @@ body { overflow:hidden; margin:0; padding:0; }
     <div id="leg0" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
   </div>
   <div class="view" id="v1">
-    <div class="vlabel">MLP Faces (GAT color)</div>
-    <div id="leg1" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
-  </div>
-  <div class="view" id="v2">
     <div class="vlabel">MLP Voted</div>
-    <div id="leg2" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
+    <div id="leg1" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
   </div>
 </div>
 <div id="loading">AI inferring...</div>
@@ -39,7 +35,7 @@ body { overflow:hidden; margin:0; padding:0; }
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const N=3, scenes=[], renderers=[], cams=[], ctrls=[], groups=[], isRaw=[true,false,false];
+const N=2, scenes=[], renderers=[], cams=[], ctrls=[], groups=[];
 let center=[0,0,0], span=1, sync=false;
 
 function init(i, elId) {
@@ -116,8 +112,7 @@ async function run(blob,name) {
   if(d.error){alert(d.error);document.getElementById('loading').style.display='none';return;}
   center=d.center;span=d.span;
   renderFaces(0,d.raw_faces,'wire');
-  renderFaces(1,d.mid_faces,'boundary');
-  renderFaces(2,d.merged_faces,'boundary');
+  renderFaces(1,d.merged_faces,'boundary');
   for(let i=0;i<N;i++){
     ctrls[i].target.set(...center);
     const dist=span*2.5;
@@ -130,14 +125,12 @@ async function run(blob,name) {
   }
   document.getElementById('leg0').innerHTML = makeLegend();
   document.getElementById('leg1').innerHTML = makeLegend();
-  document.getElementById('leg2').innerHTML = makeLegend();
   document.getElementById('v0').querySelector('.vlabel').textContent = `GAT Raw (${d.num_raw} groups)`;
-  document.getElementById('v1').querySelector('.vlabel').textContent = `MLP Faces (${d.num_mid} regions)`;
-  document.getElementById('v2').querySelector('.vlabel').textContent = `MLP Voted (${d.num_merged} faces)`;
+  document.getElementById('v1').querySelector('.vlabel').textContent = `MLP Voted (${d.num_merged} faces)`;
   document.getElementById('loading').style.display='none';
 }
 
-init(0,'v0');init(1,'v1');init(2,'v2');
+init(0,'v0');init(1,'v1');
 window.addEventListener('resize',layout);
 document.getElementById('btnInfer').addEventListener('click',async()=>{
   const p=document.getElementById('partSelect').value;if(!p)return;
