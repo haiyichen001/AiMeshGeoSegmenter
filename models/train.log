@@ -1,186 +1,52 @@
-Loading graphs_20k.pt...
-Loaded 19902 graphs (26-dim) in 5s
-Split: train=13931 val=2985 test=2986
-Moving to GPU...
-All on GPU.
-  BS=128: OK, peak=10.8GB
-  BS=192: exceeded limit (14.3GB)
-BS=108, Params=919,014
-
-##################################################
-SEED 42
-##################################################
-
-  Fold 1/3
-    S42F1 E  1 loss=2.144 vloss=1.879 acc=0.596 p=0/50
-    S42F1 E 20 loss=0.997 vloss=0.930 acc=0.787 p=2/50
-    S42F1 E 40 loss=0.818 vloss=0.814 acc=0.808 p=8/50
-    S42F1 E 60 loss=0.743 vloss=0.923 acc=0.798 p=5/50
-    S42F1 E 80 loss=0.686 vloss=0.692 acc=0.844 p=4/50
-    S42F1 E100 loss=0.646 vloss=0.644 acc=0.852 p=0/50
-    S42F1 E120 loss=0.614 vloss=0.694 acc=0.843 p=4/50
-    S42F1 E140 loss=0.588 vloss=0.622 acc=0.856 p=13/50
-    S42F1 E160 loss=0.559 vloss=0.658 acc=0.855 p=5/50
-    S42F1 E180 loss=0.536 vloss=0.601 acc=0.864 p=0/50
-    S42F1 E200 loss=0.521 vloss=0.601 acc=0.864 p=0/50
-    S42F1 E220 loss=0.507 vloss=0.628 acc=0.862 p=7/50
-    S42F1 E240 loss=0.504 vloss=0.615 acc=0.864 p=27/50
-  Best: 0.8652
-
-  Fold 2/3
-    S42F2 E  1 loss=2.265 vloss=1.769 acc=0.489 p=0/50
-    S42F2 E 20 loss=1.015 vloss=1.039 acc=0.788 p=6/50
-    S42F2 E 40 loss=0.824 vloss=0.828 acc=0.817 p=1/50
-    S42F2 E 60 loss=0.725 vloss=0.778 acc=0.827 p=6/50
-    S42F2 E 80 loss=0.687 vloss=0.813 acc=0.822 p=4/50
-    S42F2 E100 loss=0.636 vloss=0.694 acc=0.848 p=11/50
-    S42F2 E120 loss=0.617 vloss=0.658 acc=0.850 p=8/50
-    S42F2 E140 loss=0.573 vloss=0.665 acc=0.851 p=11/50
-    S42F2 E160 loss=0.556 vloss=0.646 acc=0.857 p=19/50
-    S42F2 E180 loss=0.530 vloss=0.647 acc=0.857 p=8/50
-    S42F2 E200 loss=0.515 vloss=0.625 acc=0.863 p=6/50
-    S42F2 E220 loss=0.501 vloss=0.635 acc=0.862 p=7/50
-    S42F2 E240 loss=0.492 vloss=0.624 acc=0.864 p=2/50
-  Best: 0.8638
-
-  Fold 3/3
-    S42F3 E  1 loss=2.306 vloss=1.912 acc=0.607 p=0/50
-    S42F3 E 20 loss=0.996 vloss=0.946 acc=0.791 p=2/50
-    S42F3 E 40 loss=0.821 vloss=0.751 acc=0.829 p=0/50
-    S42F3 E 60 loss=0.736 vloss=0.799 acc=0.825 p=2/50
-    S42F3 E 80 loss=0.682 vloss=0.728 acc=0.837 p=1/50
-    S42F3 E100 loss=0.650 vloss=0.698 acc=0.850 p=3/50
-    S42F3 E120 loss=0.618 vloss=0.662 acc=0.851 p=13/50
-    S42F3 E140 loss=0.581 vloss=0.701 acc=0.849 p=7/50
-    S42F3 E160 loss=0.557 vloss=0.642 acc=0.860 p=4/50
-    S42F3 E180 loss=0.529 vloss=0.628 acc=0.865 p=3/50
-    S42F3 E200 loss=0.516 vloss=0.628 acc=0.868 p=13/50
-    S42F3 E220 loss=0.504 vloss=0.616 acc=0.869 p=33/50
-    Early stop 237
-  Best: 0.8706
-
-  Final model seed=42
-  Saved model_42.pt
-
-##################################################
-SEED 123
-##################################################
-
-  Fold 1/3
-    S123F1 E  1 loss=2.190 vloss=1.894 acc=0.563 p=0/50
-    S123F1 E 20 loss=0.988 vloss=0.919 acc=0.785 p=4/50
-    S123F1 E 40 loss=0.814 vloss=0.801 acc=0.815 p=3/50
-    S123F1 E 60 loss=0.747 vloss=0.804 acc=0.825 p=4/50
-    S123F1 E 80 loss=0.679 vloss=0.734 acc=0.835 p=4/50
-    S123F1 E100 loss=0.651 vloss=0.742 acc=0.841 p=5/50
-    S123F1 E120 loss=0.610 vloss=0.598 acc=0.860 p=0/50
-    S123F1 E140 loss=0.581 vloss=0.693 acc=0.848 p=20/50
-    S123F1 E160 loss=0.554 vloss=0.623 acc=0.857 p=8/50
-    S123F1 E180 loss=0.529 vloss=0.633 acc=0.859 p=18/50
-    S123F1 E200 loss=0.511 vloss=0.613 acc=0.865 p=7/50
-    S123F1 E220 loss=0.504 vloss=0.611 acc=0.865 p=17/50
-    S123F1 E240 loss=0.497 vloss=0.611 acc=0.864 p=18/50
-  Best: 0.8666
-
-  Fold 2/3
-    S123F2 E  1 loss=2.234 vloss=1.800 acc=0.622 p=0/50
-    S123F2 E 20 loss=1.014 vloss=0.964 acc=0.783 p=6/50
-    S123F2 E 40 loss=0.814 vloss=0.921 acc=0.796 p=4/50
-    S123F2 E 60 loss=0.749 vloss=0.684 acc=0.838 p=3/50
-    S123F2 E 80 loss=0.673 vloss=0.710 acc=0.837 p=1/50
-    S123F2 E100 loss=0.638 vloss=0.722 acc=0.839 p=1/50
-    S123F2 E120 loss=0.614 vloss=0.720 acc=0.846 p=10/50
-    S123F2 E140 loss=0.580 vloss=0.687 acc=0.852 p=5/50
-    S123F2 E160 loss=0.552 vloss=0.669 acc=0.851 p=12/50
-    S123F2 E180 loss=0.533 vloss=0.636 acc=0.862 p=0/50
-    S123F2 E200 loss=0.510 vloss=0.636 acc=0.862 p=5/50
-    S123F2 E220 loss=0.501 vloss=0.633 acc=0.864 p=7/50
-    S123F2 E240 loss=0.496 vloss=0.632 acc=0.865 p=4/50
-  Best: 0.8656
-
-  Fold 3/3
-    S123F3 E  1 loss=2.210 vloss=1.830 acc=0.587 p=0/50
-    S123F3 E 20 loss=1.013 vloss=0.950 acc=0.785 p=1/50
-    S123F3 E 40 loss=0.811 vloss=0.837 acc=0.821 p=1/50
-    S123F3 E 60 loss=0.727 vloss=0.807 acc=0.817 p=1/50
-    S123F3 E 80 loss=0.675 vloss=0.711 acc=0.838 p=14/50
-    S123F3 E100 loss=0.652 vloss=0.633 acc=0.853 p=15/50
-    S123F3 E120 loss=0.603 vloss=0.699 acc=0.845 p=1/50
-    S123F3 E140 loss=0.589 vloss=0.664 acc=0.848 p=6/50
-    S123F3 E160 loss=0.555 vloss=0.636 acc=0.863 p=8/50
-    S123F3 E180 loss=0.532 vloss=0.637 acc=0.865 p=12/50
-    S123F3 E200 loss=0.515 vloss=0.610 acc=0.869 p=10/50
-    S123F3 E220 loss=0.501 vloss=0.617 acc=0.870 p=13/50
-    S123F3 E240 loss=0.503 vloss=0.606 acc=0.871 p=33/50
-  Best: 0.8715
-
-  Final model seed=123
-  Saved model_123.pt
-
-##################################################
-SEED 456
-##################################################
-
-  Fold 1/3
-    S456F1 E  1 loss=2.212 vloss=1.930 acc=0.557 p=0/50
-    S456F1 E 20 loss=0.998 vloss=0.900 acc=0.787 p=0/50
-    S456F1 E 40 loss=0.799 vloss=0.794 acc=0.820 p=1/50
-    S456F1 E 60 loss=0.733 vloss=0.725 acc=0.836 p=0/50
-    S456F1 E 80 loss=0.695 vloss=0.797 acc=0.827 p=6/50
-    S456F1 E100 loss=0.640 vloss=0.656 acc=0.848 p=11/50
-    S456F1 E120 loss=0.605 vloss=0.671 acc=0.849 p=8/50
-    S456F1 E140 loss=0.577 vloss=0.649 acc=0.855 p=7/50
-    S456F1 E160 loss=0.552 vloss=0.628 acc=0.854 p=27/50
-    S456F1 E180 loss=0.537 vloss=0.611 acc=0.862 p=47/50
-    Early stop 183
-  Best: 0.8632
-
-  Fold 2/3
-    S456F2 E  1 loss=2.245 vloss=1.773 acc=0.530 p=0/50
-    S456F2 E 20 loss=1.020 vloss=0.864 acc=0.797 p=3/50
-    S456F2 E 40 loss=0.831 vloss=0.976 acc=0.801 p=4/50
-    S456F2 E 60 loss=0.747 vloss=0.768 acc=0.830 p=14/50
-    S456F2 E 80 loss=0.706 vloss=0.678 acc=0.842 p=0/50
-    S456F2 E100 loss=0.646 vloss=0.751 acc=0.828 p=6/50
-    S456F2 E120 loss=0.620 vloss=0.705 acc=0.848 p=14/50
-    S456F2 E140 loss=0.594 vloss=0.693 acc=0.847 p=14/50
-    S456F2 E160 loss=0.564 vloss=0.640 acc=0.853 p=11/50
-    S456F2 E180 loss=0.540 vloss=0.606 acc=0.862 p=13/50
-    S456F2 E200 loss=0.523 vloss=0.609 acc=0.863 p=4/50
-    S456F2 E220 loss=0.510 vloss=0.602 acc=0.866 p=10/50
-    S456F2 E240 loss=0.501 vloss=0.603 acc=0.865 p=30/50
-  Best: 0.8660
-
-  Fold 3/3
-    S456F3 E  1 loss=2.225 vloss=1.843 acc=0.590 p=0/50
-    S456F3 E 20 loss=0.988 vloss=1.024 acc=0.782 p=6/50
-    S456F3 E 40 loss=0.834 vloss=0.812 acc=0.820 p=4/50
-    S456F3 E 60 loss=0.728 vloss=0.735 acc=0.833 p=12/50
-    S456F3 E 80 loss=0.689 vloss=0.701 acc=0.834 p=1/50
-    S456F3 E100 loss=0.646 vloss=0.708 acc=0.846 p=2/50
-    S456F3 E120 loss=0.602 vloss=0.645 acc=0.853 p=1/50
-    S456F3 E140 loss=0.576 vloss=0.603 acc=0.865 p=0/50
-    S456F3 E160 loss=0.554 vloss=0.639 acc=0.861 p=7/50
-    S456F3 E180 loss=0.533 vloss=0.626 acc=0.866 p=7/50
-    S456F3 E200 loss=0.512 vloss=0.603 acc=0.871 p=0/50
-    S456F3 E220 loss=0.496 vloss=0.608 acc=0.871 p=7/50
-    S456F3 E240 loss=0.496 vloss=0.612 acc=0.870 p=19/50
-  Best: 0.8725
-
-  Final model seed=456
-  Saved model_456.pt
+Loading from cache: graphs_20k.pt (1234 MB)...
+Loaded 19902 graphs in 3s
+Train: 13931, Val: 2985, Test: 2986
+Auto-tuning batch size...
+  BS=128: OK, peak=5.2GB (limit=14.5GB)
+  BS=192: OK, peak=5.9GB (limit=14.5GB)
+  BS=224: OK, peak=5.3GB (limit=14.5GB)
+  BS=240: OK, peak=8.0GB (limit=14.5GB)
+  BS=248: OK, peak=7.0GB (limit=14.5GB)
+  BS=252: OK, peak=7.7GB (limit=14.5GB)
+  BS=254: OK, peak=8.6GB (limit=14.5GB)
+  BS=255: OK, peak=6.9GB (limit=14.5GB)
+  BS=256: OK, peak=8.6GB (limit=14.5GB)
+  Using BS=217
+Params: 919,014, BS: 217
+Moving graphs to GPU...
+All 19902 graphs on GPU.
+  Epoch   1 | loss=2.269 val_loss=1.784 acc=0.603 | patience=0/50
+  Epoch  10 | loss=1.154 val_loss=1.047 acc=0.741 | patience=1/50
+  Epoch  20 | loss=0.952 val_loss=0.838 acc=0.801 | patience=1/50
+  Epoch  30 | loss=0.805 val_loss=0.943 acc=0.796 | patience=2/50
+  Epoch  40 | loss=0.768 val_loss=0.703 acc=0.834 | patience=6/50
+  Epoch  50 | loss=0.703 val_loss=0.820 acc=0.812 | patience=1/50
+  Epoch  60 | loss=0.670 val_loss=0.646 acc=0.845 | patience=4/50
+  Epoch  70 | loss=0.638 val_loss=0.611 acc=0.851 | patience=5/50
+  Epoch  80 | loss=0.623 val_loss=0.691 acc=0.842 | patience=15/50
+  Epoch  90 | loss=0.602 val_loss=0.581 acc=0.866 | patience=0/50
+  Epoch 100 | loss=0.588 val_loss=0.598 acc=0.857 | patience=2/50
+  Epoch 110 | loss=0.572 val_loss=0.551 acc=0.868 | patience=0/50
+  Epoch 120 | loss=0.578 val_loss=0.583 acc=0.862 | patience=5/50
+  Epoch 130 | loss=0.552 val_loss=0.615 acc=0.860 | patience=4/50
+  Epoch 140 | loss=0.533 val_loss=0.542 acc=0.873 | patience=0/50
+  Epoch 150 | loss=0.518 val_loss=0.576 acc=0.867 | patience=9/50
+  Epoch 160 | loss=0.514 val_loss=0.541 acc=0.875 | patience=19/50
+  Epoch 170 | loss=0.503 val_loss=0.544 acc=0.874 | patience=1/50
+  Epoch 180 | loss=0.490 val_loss=0.539 acc=0.876 | patience=11/50
+  Epoch 190 | loss=0.486 val_loss=0.535 acc=0.879 | patience=21/50
+  Epoch 200 | loss=0.481 val_loss=0.522 acc=0.879 | patience=31/50
+  Epoch 210 | loss=0.473 val_loss=0.518 acc=0.879 | patience=6/50
+  Epoch 220 | loss=0.468 val_loss=0.521 acc=0.880 | patience=5/50
+  Epoch 230 | loss=0.463 val_loss=0.534 acc=0.879 | patience=15/50
+  Epoch 240 | loss=0.467 val_loss=0.530 acc=0.879 | patience=5/50
+  Epoch 250 | loss=0.461 val_loss=0.530 acc=0.880 | patience=2/50
+SWA: averaged 223 snapshots
 
 ==================================================
-ENSEMBLE TEST
-==================================================
-
-Test Acc (3-model ensemble): 0.8788
-Per-class:
-  plane        282606/  313178 = 90.24%
-  cylinder     217729/  248906 = 87.47%
-  sphere        47358/   64007 = 73.99%
-  cone          61838/   69819 = 88.57%
-  torus        221650/  228366 = 97.06%
-  freeform      53216/   82080 = 64.83%
-
-Report saved. Total time: 439.1min
+Train Time: 2871s (47.9min)
+Best Val Acc: 0.8806
+Params: 919,014
+Test Acc (SWA): 0.8764
+Model: 3611 KB
+Log saved.
