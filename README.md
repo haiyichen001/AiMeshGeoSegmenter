@@ -190,11 +190,13 @@ Infer page shows 3 views side-by-side:
 | MLP Input | 4-dim: dihedral angle, area ratio, dist, convexity |
 | Training | AMP + Focal Loss(γ=2) + DropEdge 15% + SWA + Cosine LR
 
-## Next
+## Future Improvements
 
 - [ ] Retrain GAT with per-epoch logging (3-seed × 3-fold = 9 curves)
-- [ ] Add GAT training curves to Model page
-- [ ] Fix sphere label quality (SPHERE_FIT_TOL 0.02 → 0.01)
+- [ ] Cylinder/Cone/Torus recovery from freeform faces (RANSAC fitting, ~20-30 min)
+- [ ] Rotation-invariant features for GAT
+- [ ] Test-time augmentation for inference
+- [ ] STL→STEP full pipeline (numerical fitting + B-Rep construction)
 
 ## Status
 

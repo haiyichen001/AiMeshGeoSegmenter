@@ -134,11 +134,35 @@ def try_fit_plane(verts_list):
     return True, normal.tolist(), float(rel_err)
 
 
-def try_fit_sphere(verts_list):
-    """Least-squares sphere fit. Returns (ok, center, radius, rel_error)."""
+def try_fit_sphere(verts_list, tri_list=None):
+    """Least-squares sphere fit. Subdivides if < 100 vertices to avoid overfitting."""
     if len(verts_list) < 30:
         return False, None, None, 1.0
     pts = np.array(verts_list).reshape(-1, 3)
+    # If too few vertices, subdivide triangle mesh to get more samples
+    if len(pts) < 100 and tri_list is not None:
+        tris = np.array(tri_list).reshape(-1, 3)
+        for _ in range(3):  # 3 iterations of subdivision
+            new_pts = list(pts)
+            new_tris = []
+            edge_mid = {}
+            for t in tris:
+                new_v = []
+                for j in range(3):
+                    a, b = int(t[j]), int(t[(j+1)%3])
+                    key = tuple(sorted([a, b]))
+                    if key not in edge_mid:
+                        mid = (pts[a] + pts[b]) / 2
+                        edge_mid[key] = len(new_pts)
+                        new_pts.append(mid)
+                    new_v.append(edge_mid[key])
+                new_tris.append([t[0], new_v[0], new_v[2]])
+                new_tris.append([new_v[0], t[1], new_v[1]])
+                new_tris.append([new_v[2], new_v[1], t[2]])
+                new_tris.append([new_v[0], new_v[1], new_v[2]])
+            pts = np.array(new_pts)
+            tris = np.array(new_tris)
+            if len(pts) >= 500: break
     if len(pts) > 500:
         idx = np.random.choice(len(pts), 500, replace=False)
         pts = pts[idx]
@@ -381,7 +405,7 @@ def process_one(step_path):
 
                 # 2. Check if actually spherical (skip Extrusion - can never be a sphere)
                 if occ != "Extrusion":
-                    ok_sp, c_sp, r_sp, rel_sp = try_fit_sphere(verts)
+                    ok_sp, c_sp, r_sp, rel_sp = try_fit_sphere(verts, f.get("triangles"))
                     if ok_sp and rel_sp < SPHERE_FIT_TOL:
                         f["label"] = "sphere"; label_dist["sphere"] += 1; continue
 

@@ -202,7 +202,8 @@ def process_one(step_path):
                 loc=TopLoc_Location(); tri=BRep_Tool().Triangulation(fm.FindKey(i),loc)
                 if tri is not None:
                     pts=[]; trsf=loc.Transformation()
-                    for j in range(1, min(tri.NbNodes(),500)+1):
+                    nv = tri.NbNodes()
+                    for j in range(1, min(nv,500)+1):
                         p=tri.Node(j); p.Transform(trsf); pts.append([p.X(),p.Y(),p.Z()])
                     pts=np.array(pts)
                     if len(pts)>=30:
@@ -216,15 +217,47 @@ def process_one(step_path):
                         if rms_pl / max(span, 1e-6) < 1e-4:
                             base = "plane"
                         else:
-                            # Try sphere (skip Extrusion - can never be a sphere)
+                            # Try sphere (skip Extrusion, subdivide if <100 verts)
                             if occ != GeomAbs_SurfaceOfExtrusion:
-                                A=np.column_stack([2*pts, np.ones(len(pts))])
-                                b=(pts**2).sum(axis=1)
+                                spts = pts
+                                if nv < 100:
+                                    # Subdivide to avoid overfitting
+                                    all_faces = []
+                                    for j in range(1, tri.NbTriangles()+1):
+                                        t = tri.Triangle(j)
+                                        all_faces.append([t.Value(1)-1, t.Value(2)-1, t.Value(3)-1])
+                                    all_faces = np.array(all_faces)
+                                    for _ in range(3):
+                                        new_pts = list(spts)
+                                        new_faces = []
+                                        edge_mid = {}
+                                        for face_t in all_faces:
+                                            new_v = []
+                                            for j in range(3):
+                                                a, b = int(face_t[j]), int(face_t[(j+1)%3])
+                                                key = tuple(sorted([a, b]))
+                                                if key not in edge_mid:
+                                                    mid = (spts[a] + spts[b]) / 2
+                                                    edge_mid[key] = len(new_pts)
+                                                    new_pts.append(mid)
+                                                new_v.append(edge_mid[key])
+                                            new_faces.append([face_t[0], new_v[0], new_v[2]])
+                                            new_faces.append([new_v[0], face_t[1], new_v[1]])
+                                            new_faces.append([new_v[2], new_v[1], face_t[2]])
+                                            new_faces.append([new_v[0], new_v[1], new_v[2]])
+                                        spts = np.array(new_pts)
+                                        all_faces = np.array(new_faces)
+                                        if len(spts) >= 500: break
+                                if len(spts) > 500:
+                                    idx = np.random.choice(len(spts), 500, replace=False)
+                                    spts = spts[idx]
+                                A=np.column_stack([2*spts, np.ones(len(spts))])
+                                b=(spts**2).sum(axis=1)
                                 try:
                                     x,_,_,_=np.linalg.lstsq(A,b,rcond=None)
                                     c=x[:3]; r2=x[3]+np.dot(c,c)
                                     if r2>0:
-                                        r=np.sqrt(r2); dists=np.abs(np.linalg.norm(pts-c,axis=1)-r)
+                                        r=np.sqrt(r2); dists=np.abs(np.linalg.norm(spts-c,axis=1)-r)
                                         if np.sqrt((dists**2).mean())/max(r,1e-6)<0.005: base="sphere"
                                 except: pass
             face_labels[i]=L2I[base]
