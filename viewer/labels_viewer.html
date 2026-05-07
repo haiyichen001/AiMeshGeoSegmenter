@@ -103,26 +103,11 @@ function animate() { requestAnimationFrame(animate); ctrl.update(); renderer.ren
 
 async function init() {
   initScene(); animate();
-  const r = await fetch(`${BASE}/api/parts`);
+  // TEMP: sphere-only parts for review
+  const r = await fetch(`${BASE}/api/parts_sphere`);
   const parts = await r.json();
   const sel = document.getElementById('partSelect');
-  const groups = {};
-  parts.forEach(p => {
-    let g = 'ABC';
-    const pfxs = ['HexagonNut','HexHeadBolt','SocketHeadCap','Countersunk','PanHead',
-      'SetScrew','PlainWasher','ChamferedWasher','DeepGroove','CappedDeep','AngularContact',
-      'CylindricalRoller','TaperedRoller','SpurGear','BevelGear','CrossedHelical',
-      'RackGear','RingGear','WormGear'];
-    for (const pf of pfxs) { if (p.includes(pf)) { g = pf; break; } }
-    if (!groups[g]) groups[g] = [];
-    groups[g].push(p);
-  });
-  for (const g of Object.keys(groups).sort()) {
-    const og = document.createElement('optgroup');
-    og.label = g + ' (' + groups[g].length + ')';
-    groups[g].forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; og.appendChild(o); });
-    sel.appendChild(og);
-  }
+  parts.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o); });
   const def = parts[Math.floor(Math.random()*parts.length)];
   if(def) sel.value = def;
   sel.addEventListener('change',()=>load(sel.value));

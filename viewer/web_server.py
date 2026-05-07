@@ -94,6 +94,14 @@ def api_parts():
     parts = sorted([f.stem for f in STEP_DIR.glob("*.step")])
     return jsonify(parts)
 
+
+@app.route("/api/parts_sphere")
+def api_parts_sphere():
+    path = DATA / "models" / "sphere_parts.json"
+    if path.exists():
+        return jsonify(json.loads(path.read_text()))
+    return jsonify([])
+
 # ── STEP mesh ──
 @app.route("/api/mesh/<part>")
 def api_mesh(part):
