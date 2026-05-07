@@ -22,7 +22,7 @@ body { overflow:hidden; margin:0; padding:0; }
     <div id="leg0" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
   </div>
   <div class="view" id="v1">
-    <div class="vlabel">MLP Voted</div>
+    <div class="vlabel">MLP 分面 + Vote</div>
     <div id="leg1" style="position:absolute;top:70px;left:8px;z-index:50;display:flex;flex-direction:column;gap:2px"></div>
   </div>
 </div>
@@ -98,7 +98,7 @@ function renderFaces(gi, data, edgeMode) {
         groups[gi].add(wire);
       } else if (edgeMode === 'boundary') {
         const edges=new THREE.EdgesGeometry(geo, 30);
-        const line=new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0xffffff,linewidth:1,transparent:true,opacity:0.7}));
+        const line=new THREE.LineSegments(edges, new THREE.LineBasicMaterial({color:0x000000,linewidth:1}));
         groups[gi].add(line);
       }
     }
@@ -120,17 +120,13 @@ async function run(blob,name) {
     cams[i].lookAt(...center);ctrls[i].update();
   }
   const COLORS = {"plane":"#4db8ff","cylinder":"#44cc44","sphere":"#ff44ff","cone":"#ff8844","torus":"#ffcc00","freeform":"#888888"};
-  function makeLegend(id) {
-    return Object.entries(COLORS).map(([n,c])=>`<div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:3px"><span style="width:12px;height:12px;border-radius:2px;background:${c}"></span><span style="color:#ccc;font-size:10px">${n}</span></div>`).join('');
+  function makeLegend(counts) {
+    return Object.entries(COLORS).map(([n,c])=>`<div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.7);padding:2px 6px;border-radius:3px"><span style="width:12px;height:12px;border-radius:2px;background:${c}"></span><span style="color:#ccc;font-size:10px">${n}${counts&&counts[n]!=null?' ('+counts[n]+')':''}</span></div>`).join('');
   }
-  document.getElementById('leg0').innerHTML = makeLegend();
-  document.getElementById('leg1').innerHTML = makeLegend();
-  const rc = d.raw_counts||{};
-  const rstr = Object.entries(rc).filter(([,c])=>c>0).map(([n,c])=>`${n}:${c}`).join(' ');
-  document.getElementById('v0').querySelector('.vlabel').textContent = `GAT Raw  ${d.total_tris} tris  ${rstr}`;
-  const mc = d.merged_counts||{};
-  const mstr = Object.entries(mc).map(([n,c])=>`${n}:${c}`).join(' ');
-  document.getElementById('v1').querySelector('.vlabel').textContent = `MLP Voted  ${d.num_merged} faces  ${mstr}`;
+  document.getElementById('leg0').innerHTML = makeLegend(d.raw_counts);
+  document.getElementById('leg1').innerHTML = makeLegend(d.merged_counts);
+  document.getElementById('v0').querySelector('.vlabel').textContent = `GAT Raw  ${d.total_tris} triangles`;
+  document.getElementById('v1').querySelector('.vlabel').textContent = `MLP 分面 + Vote  ${d.num_merged} faces`;
   document.getElementById('loading').style.display='none';
 }
 
