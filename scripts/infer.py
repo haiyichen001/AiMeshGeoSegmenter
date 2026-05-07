@@ -308,8 +308,6 @@ def predict_stl(stl_path, model_paths=None, refine=True):
         regions = mlp_merge_regions(faces, normals, centers, areas, span,
                                      adj, pred, verts=verts, return_regions=True)
         for region_tris, region_label in regions:
-        merged_faces_out = []
-        for region_tris, region_label in regions:
             tris = faces[region_tris]
             name = LABEL_NAMES[region_label]
             vset = {}; vi = 0; loc_verts = []; loc_tris = []
