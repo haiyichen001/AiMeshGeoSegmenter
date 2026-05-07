@@ -129,32 +129,41 @@ function render(gat, ens, mlp) {
   h += '<tr><td>Optimizer</td><td>Adam, lr=0.001, BS=8192, 50 epochs</td></tr>';
   h += '<tr><td>Training data</td><td>3.8M edge pairs from 16K STEP files</td></tr>';
   h += '</table>';
-  // Training Curve
-  if (mlp && mlp.history && mlp.history.loss) {
-    h += '<h3>Training Curve</h3>';
-    const loss = mlp.history.loss, acc = mlp.history.acc, n = loss.length;
-    h += `<svg viewBox="0 0 600 190" style="width:100%;background:var(--bg-tertiary);border-radius:6px">`;
-    const M = {t:16, r:55, b:24, l:48}, pw=600-M.l-M.r, ph=190-M.t-M.b;
-    const lmax=Math.max(...loss)*1.05, lmin=Math.min(...loss)*0.95, lr=lmax-lmin||1;
+  // Training Curve (3 models x 2 curves = 6 lines)
+  if (mlp && mlp.histories && mlp.histories.length > 0) {
+    h += '<h3>Training Curve (3 models)</h3>';
+    const LOSS_COLORS = ['#f97316','#ef4444','#ec4899'];
+    const ACC_COLORS = ['#22c55e','#06b6d4','#8b5cf6'];
+    const allLosses = mlp.histories.map(h=>h.history.loss);
+    const allAccs = mlp.histories.map(h=>h.history.acc);
+    const n = Math.max(...allLosses.map(l=>l.length));
+    let lmax=-Infinity, lmin=Infinity, amax=-Infinity, amin=Infinity;
+    allLosses.forEach(l=>{ l.forEach(v=>{if(v<lmin)lmin=v;if(v>lmax)lmax=v;}); });
+    allAccs.forEach(a=>{ a.forEach(v=>{if(v<amin)amin=v;if(v>amax)amax=v;}); });
+    lmax*=1.05; lmin*=0.95; amax*=1.02; amin*=0.95;
+    const lr=lmax-lmin||1; const ar=amax-amin||1;
+
+    h += `<svg viewBox="0 0 600 210" style="width:100%;background:var(--bg-tertiary);border-radius:6px">`;
+    const M={t:20,r:55,b:28,l:48}, pw=600-M.l-M.r, ph=210-M.t-M.b;
     const lys=v=>M.t+ph*(1-(v-lmin)/lr);
+    const ays=v=>M.t+ph*(1-(v-amin)/ar);
     const xs=i=>M.l+(pw/Math.max(n-1,1))*i;
-    const amax=Math.max(...acc), amin=Math.min(...acc);
-    // Grid + left Y labels (Loss)
-    for (let i=0;i<=4;i++) { const y=M.t+ph*i/4; h+=`<line x1="${M.l}" y1="${y}" x2="${600-M.r}" y2="${y}" stroke="var(--bg-secondary)" stroke-width="0.5"/>`; h+=`<text x="${M.l-4}" y="${y+4}" fill="#f97316" font-size="9" text-anchor="end">${(lmax-(lmax-lmin)*i/4).toFixed(2)}</text>`; }
-    // Right Y labels (Acc)
-    for (let i=0;i<=4;i++) { const y=M.t+ph*i/4; h+=`<text x="${600-M.r+4}" y="${y+4}" fill="#22c55e" font-size="9">${((amax-(amax-amin)*i/4)*100).toFixed(0)}%</text>`; }
+    // Grid
+    for(let i=0;i<=4;i++){const y=M.t+ph*i/4;h+=`<line x1="${M.l}" y1="${y}" x2="${600-M.r}" y2="${y}" stroke="var(--bg-secondary)" stroke-width="0.5"/>`;}
+    // Y labels (Loss left, Acc right)
+    for(let i=0;i<=4;i++){const y=M.t+ph*i/4;h+=`<text x="${M.l-4}" y="${y+4}" fill="#f97316" font-size="9" text-anchor="end">${(lmax-(lmax-lmin)*i/4).toFixed(2)}</text>`;h+=`<text x="${600-M.r+4}" y="${y+4}" fill="#22c55e" font-size="9" text-anchor="start">${((amax-(amax-amin)*i/4)*100).toFixed(0)}%</text>`;}
     // X labels
-    for (let i=0;i<n;i+=Math.max(1,Math.floor(n/6))) h+=`<text x="${xs(i)}" y="${190-4}" fill="#64748b" font-size="9" text-anchor="middle">${i+1}</text>`;
-    // Loss line
-    let path=''; loss.forEach((v,i)=>{ path+=(i===0?'M':'L')+xs(i).toFixed(1)+','+lys(v).toFixed(1); });
-    h+=`<path d="${path}" fill="none" stroke="#f97316" stroke-width="2"/>`;
-    // Acc line
-    const ays=v=>M.t+ph*(1-(v-amin)/(amax-amin||1));
-    let apath=''; acc.forEach((v,i)=>{ apath+=(i===0?'M':'L')+xs(i).toFixed(1)+','+ays(v).toFixed(1); });
-    h+=`<path d="${apath}" fill="none" stroke="#22c55e" stroke-width="2" stroke-dasharray="4,2"/>`;
-    // Legend
-    h+=`<circle cx="${M.l+10}" cy="${M.t-6}" r="3" fill="#f97316"/><text x="${M.l+18}" y="${M.t-2}" fill="#94a3b8" font-size="9">Loss</text>`;
-    h+=`<circle cx="${M.l+60}" cy="${M.t-6}" r="3" fill="#22c55e"/><text x="${M.l+68}" y="${M.t-2}" fill="#94a3b8" font-size="9">Accuracy</text>`;
+    for(let i=0;i<n;i+=Math.max(1,Math.floor(n/8)))h+=`<text x="${xs(i)}" y="${210-4}" fill="#64748b" font-size="9" text-anchor="middle">${i+1}</text>`;
+    // Lines: each model = loss + acc
+    mlp.histories.forEach((h,si)=>{
+      const lc=LOSS_COLORS[si%3], ac=ACC_COLORS[si%3];
+      const lossPath=h.history.loss.map((v,i)=>(i===0?'M':'L')+xs(i).toFixed(1)+','+lys(v).toFixed(1)).join('');
+      const accPath=h.history.acc.map((v,i)=>(i===0?'M':'L')+xs(i).toFixed(1)+','+ays(v).toFixed(1)).join('');
+      h+=`<path d="${lossPath}" fill="none" stroke="${lc}" stroke-width="1.5"/>`;
+      h+=`<path d="${accPath}" fill="none" stroke="${ac}" stroke-width="1.5" stroke-dasharray="4,2"/>`;
+      h+=`<circle cx="${M.l+14+si*40}" cy="${M.t-8}" r="3" fill="${lc}"/><text x="${M.l+21+si*40}" y="${M.t-3}" fill="#94a3b8" font-size="8">L${si+1}</text>`;
+      h+=`<circle cx="${M.l+26+si*40}" cy="${M.t-8}" r="3" fill="${ac}"/><text x="${M.l+33+si*40}" y="${M.t-3}" fill="#94a3b8" font-size="8">A${si+1}</text>`;
+    });
     h += '</svg>';
   }
   h += '</div>'; // end right

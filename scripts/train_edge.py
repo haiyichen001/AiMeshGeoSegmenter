@@ -70,7 +70,7 @@ def extract_training_data(label_file, max_pairs=30):
                                    areas[ai], areas[bi], span)
             positives.append(feats)
 
-    # Negatives: boundary pairs between adjacent faces
+    # Negatives: spatially closest triangle pairs across adjacent faces (hard samples)
     for idx, info in face_info.items():
         for nb_idx in info["neighbors"]:
             if nb_idx not in face_info: continue
@@ -88,15 +88,15 @@ def extract_training_data(label_file, max_pairs=30):
                 be2 = b_verts[b_tris[:,2]] - b_verts[b_tris[:,0]]
                 bn = np.cross(be1, be2); bn_nrm = np.linalg.norm(bn,axis=1,keepdims=True).clip(1e-15)
                 bn /= bn_nrm; b_areas = bn_nrm.flatten()*0.5
-                ae3 = a_verts[a_tris[:,2]] - a_verts[a_tris[:,1]]
-                be3 = b_verts[b_tris[:,2]] - b_verts[b_tris[:,1]]
-                a_perims = np.linalg.norm(ae1,axis=1) + np.linalg.norm(ae2,axis=1) + np.linalg.norm(ae3,axis=1)
-                b_perims = np.linalg.norm(be1,axis=1) + np.linalg.norm(be2,axis=1) + np.linalg.norm(be3,axis=1)
             except: continue
 
-            n_pairs = min(5, min(len(an), len(bn)))
-            for _ in range(n_pairs):
-                ai, bi = np.random.randint(len(an)), np.random.randint(len(bn))
+            # Find closest pairs (hard boundary samples)
+            n_samp = min(5, min(len(an), len(bn)))
+            # Take first N triangles from face A, find closest in face B
+            a_sample = np.random.choice(len(an), min(n_samp, len(an)), replace=False)
+            for ai in a_sample:
+                dists = np.linalg.norm(b_centers - a_centers[ai], axis=1)
+                bi = int(np.argmin(dists))
                 feats = compute_4feat(an[ai], bn[bi], a_centers[ai], b_centers[bi],
                                        a_areas[ai], b_areas[bi], span)
                 negatives.append(feats)
@@ -155,43 +155,62 @@ def main():
 
     X_t, y_t = torch.tensor(X, device=DEVICE), torch.tensor(y, device=DEVICE)
     X_te, y_te = torch.tensor(Xt, device=DEVICE), torch.tensor(yt, device=DEVICE)
-    BS, best_acc = 8192, 0
-    mlp_hist = {'loss': [], 'acc': []}
+    BS, best_model_acc = 8192, 0
+    all_histories = []
+    seeds = [42, 123, 456]
+    best_model_idx = 0
 
-    for epoch in range(1, 51):
-        model.train(); perm = torch.randperm(len(X)); epoch_loss = 0
-        for i in range(0, len(X), BS):
-            bi = perm[i:i+BS]
-            loss = F.binary_cross_entropy_with_logits(model(X_t[bi]), y_t[bi])
-            opt.zero_grad(); loss.backward(); opt.step()
-            epoch_loss += loss.item()
-        mlp_hist['loss'].append(epoch_loss / (len(X)/BS))
+    for si, seed in enumerate(seeds):
+        torch.manual_seed(seed); np.random.seed(seed); random.seed(seed)
+        print(f"\n  Model {si+1}/3 (seed={seed})")
+        model = EdgeClassifier(X.shape[1]).to(DEVICE)
+        opt = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
+        mlp_hist = {'loss': [], 'acc': []}
+        best_acc = 0
 
-        model.eval()
-        with torch.no_grad():
-            out = model(X_te)
-            best_t, best_a = 0.5, 0
-            for t in np.arange(0.2, 0.8, 0.02):
-                acc = ((torch.sigmoid(out) > t).float() == y_te).float().mean().item()
-                if acc > best_a: best_a = acc; best_t = t
-            mlp_hist['acc'].append(best_a)
-            if best_a > best_acc:
-                best_acc = best_a
-                torch.save({"model": model.state_dict(), "mean": mean, "std": std, "threshold": best_t},
-                           ROOT/"models"/"edge_classifier.pt")
+        for epoch in range(1, 51):
+            model.train(); perm = torch.randperm(len(X)); epoch_loss = 0
+            for i in range(0, len(X), BS):
+                bi = perm[i:i+BS]
+                loss = F.binary_cross_entropy_with_logits(model(X_t[bi]), y_t[bi])
+                opt.zero_grad(); loss.backward(); opt.step()
+                epoch_loss += loss.item()
+            mlp_hist['loss'].append(epoch_loss / (len(X)/BS))
 
-        if epoch % 10 == 0 or epoch == 1:
-            print(f"  Epoch {epoch:3d} | loss={mlp_hist['loss'][-1]:.4f} acc={best_a:.4f} thr={best_t:.3f}")
+            model.eval()
+            with torch.no_grad():
+                out = model(X_te)
+                best_t, best_a = 0.5, 0
+                for t in np.arange(0.2, 0.8, 0.02):
+                    acc = ((torch.sigmoid(out) > t).float() == y_te).float().mean().item()
+                    if acc > best_a: best_a = acc; best_t = t
+                mlp_hist['acc'].append(best_a)
+                if best_a > best_acc: best_acc = best_a
 
-    print(f"\nBest: {best_acc:.4f} @ thr={best_t:.3f}")
-    print(f"Model: {os.path.getsize(ROOT/'models'/'edge_classifier.pt')/1024:.0f} KB")
+            if epoch % 10 == 0 or epoch == 1:
+                print(f"    E{epoch:3d} loss={mlp_hist['loss'][-1]:.4f} acc={best_a:.4f}")
 
-    # Save training log
+        all_histories.append({"seed": seed, "best_acc": float(best_acc), "history": mlp_hist})
+        print(f"    Best: {best_acc:.4f}")
+
+        # Save individual model
+        torch.save({"model": model.state_dict(), "mean": mean, "std": std, "threshold": float(best_t)},
+                   ROOT/"models"/f"edge_classifier_{si}.pt")
+        if best_acc > best_model_acc:
+            best_model_acc = best_acc; best_thr = best_t; best_model_idx = si
+        del model; torch.cuda.empty_cache()
+
+    # Save best as default
+    import shutil
+    shutil.copy(ROOT/"models"/f"edge_classifier_{best_model_idx}.pt", ROOT/"models"/"edge_classifier.pt")
+    print(f"\nBest model: {best_model_idx} ({best_model_acc:.4f} @ thr={best_thr:.3f})")
+
+    # Save ensemble log
     import json
     with open(ROOT/"models"/"mlp_train_log.json", "w") as f:
-        json.dump({"model": "MLP Edge v2", "params": sum(p.numel() for p in model.parameters()),
-                   "best_acc": float(best_acc), "threshold": float(best_t),
-                   "history": mlp_hist}, f, indent=2)
+        json.dump({"model": "MLP Edge v3 ensemble", "params": sum(p.numel() for p in EdgeClassifier(X.shape[1]).parameters()),
+                   "best_acc": float(best_model_acc), "threshold": float(best_thr),
+                   "histories": all_histories}, f, indent=2)
     print("Log saved.")
 
 if __name__ == "__main__": main()

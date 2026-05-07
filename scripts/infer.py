@@ -124,9 +124,7 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, ve
     """Use edge MLP to segment mesh into faces, then majority vote."""
     import torch, torch.nn as nn
 
-    ckpt = torch.load(str(ROOT / "models" / "edge_classifier.pt"), map_location='cpu', weights_only=False)
-    mean, std = np.array(ckpt['mean']), np.array(ckpt['std'])
-
+    # Load all 3 edge classifier models for ensemble
     class EdgeMLP(nn.Module):
         def __init__(self, in_dim):
             super().__init__()
@@ -138,9 +136,17 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, ve
         def forward(self, x):
             return self.net(x).squeeze(-1)
 
-    model = EdgeMLP(len(mean))
-    model.load_state_dict(ckpt['model'])
-    model.eval()
+    models = []
+    for i in range(3):
+        path = ROOT / "models" / f"edge_classifier_{i}.pt"
+        if not path.exists():
+            path = ROOT / "models" / "edge_classifier.pt"
+        ckpt = torch.load(str(path), map_location='cpu', weights_only=False)
+        mean = np.array(ckpt['mean']); std = np.array(ckpt['std'])
+        m = EdgeMLP(len(mean))
+        m.load_state_dict(ckpt['model'])
+        m.eval()
+        models.append((m, mean, std, ckpt.get('threshold', 0.5)))
 
     feats = compute_edge_features(verts=verts if verts is not None else np.zeros((faces.max()+1,3)),
                                    faces=faces, adj=adj, normals=normals,
@@ -148,10 +154,15 @@ def mlp_merge_regions(faces, normals, centers, areas, span, adj, pred_labels, ve
     if len(feats) == 0:
         return [] if return_regions else pred_labels
 
-    feats_norm = (feats - mean) / std.clip(1e-6)
-    with torch.no_grad():
-        thr = ckpt.get('threshold', 0.5)
-        edge_pred = (torch.sigmoid(model(torch.tensor(feats_norm))) > thr).numpy()
+    # Ensemble: average predictions from all models
+    edge_probs = []
+    for m, mean, std, thr in models:
+        feats_norm = (feats - mean) / std.clip(1e-6)
+        with torch.no_grad():
+            probs = torch.sigmoid(m(torch.tensor(feats_norm))).numpy()
+        edge_probs.append(probs)
+    avg_probs = np.mean(edge_probs, axis=0)
+    edge_pred = (avg_probs > 0.5).numpy()
 
     nbrs = [[] for _ in range(len(faces))]
     for (a, b), same in zip(adj, edge_pred):
