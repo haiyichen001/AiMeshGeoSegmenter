@@ -326,13 +326,21 @@ def predict_stl(stl_path, model_paths=None, refine=True):
         merged_faces_out = raw_faces_out
 
     span = float(max(verts.max(axis=0)-verts.min(axis=0)))
+    # Stats
+    raw_counts = {LABEL_NAMES[li]: int((pred == li).sum()) for li in range(len(LABEL_NAMES))}
+    merged_counts = {}
+    for f in merged_faces_out:
+        merged_counts[f["type"]] = merged_counts.get(f["type"], 0) + 1
     return {
         "raw_faces": raw_faces_out,
         "merged_faces": merged_faces_out,
         "center": centers.mean(axis=0).tolist(),
         "span": span,
         "num_raw": len(raw_faces_out),
-        "num_merged": len(merged_faces_out)
+        "num_merged": len(merged_faces_out),
+        "total_tris": int(len(pred)),
+        "raw_counts": raw_counts,
+        "merged_counts": merged_counts
     }
 
 
