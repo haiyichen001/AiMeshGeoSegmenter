@@ -136,7 +136,7 @@ function render(gat, ens, mlp) {
     mlp.histories.forEach((h,si)=>{
       const loss=h.history.loss, acc=h.history.acc, n=loss.length;
       if (n<2) return;
-      let lmax=-Inf,lmin=Inf,amax=-Inf,amin=Inf;
+      let lmax=-Infinity,lmin=Infinity,amax=-Infinity,amin=Infinity;
       loss.forEach(v=>{if(v<lmin)lmin=v;if(v>lmax)lmax=v;});
       acc.forEach(v=>{if(v<amin)amin=v;if(v>amax)amax=v;});
       lmax*=1.05;lmin*=0.95; amax*=1.02;amin*=0.95;
