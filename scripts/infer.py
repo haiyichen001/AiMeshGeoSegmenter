@@ -338,10 +338,13 @@ def predict_stl(stl_path, model_paths=None, refine=True):
             ca = centers[a]; cb = centers[b]
             bline_verts.extend([ca[0], ca[1], ca[2], cb[0], cb[1], cb[2]])
         mid_faces_out = [{
-            "vertices": mid_verts, "triangles": mid_tris,
-            "face_colors": mid_colors, "type": "mid_raw",
-            "color": "#888888", "center": centers.mean(axis=0).tolist(),
-            "boundary_lines": bline_verts
+            "vertices": [float(v) for v in mid_verts],
+            "triangles": mid_tris,
+            "face_colors": [float(c) for c in mid_colors],
+            "type": "mid_raw",
+            "color": "#888888",
+            "center": centers.mean(axis=0).tolist(),
+            "boundary_lines": [float(v) for v in bline_verts]
         }]
 
         # Right panel: MLP regions WITH voting
