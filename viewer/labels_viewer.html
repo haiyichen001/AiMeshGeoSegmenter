@@ -124,7 +124,6 @@ async function init() {
     sel.appendChild(og);
   }
   const def = parts[Math.floor(Math.random()*parts.length)];
-  const def = parts[Math.floor(Math.random()*parts.length)];
   if(def) sel.value = def;
   sel.addEventListener('change',()=>load(sel.value));
   document.getElementById('btnReload').addEventListener('click',()=>load(sel.value));
