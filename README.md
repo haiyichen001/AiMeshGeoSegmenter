@@ -151,10 +151,13 @@ Key techniques: Jumping Knowledge (JK), AMP, DropEdge, SWA, Focal Loss, GPU-dire
 Per-class accuracy (v4 ensemble, 2,986 test parts):
 - torus 97.06%, plane 90.24%, cone 88.57%, cylinder 87.47%, sphere 73.99%, freeform 64.83%
 
-## Known Issues
+## Limitations
 
-- **Per-triangle inconsistency**: same B-Rep face may have different labels on adjacent triangles. Mitigated by `merge_regions` post-processing (region growing + majority vote).
-- **Rotation sensitivity**: Fourier position encoding is not rotation-invariant. Rotated parts may produce different predictions. Future: add rotation augmentation during training.
+- **Sphere label quality**: OCCT GeomAbs_Sphere only. Freeform→sphere recovery requires >=100 vertices + subdivision + <0.5% RMS error. Extrusion surfaces excluded. Small false-sphere faces eliminated.
+- **Cylinder/Cone/Torus recovery from freeform**: Not yet implemented (requires RANSAC iterative fitting, ~20-30 min). OCCT-mislabeled freeform faces may contain hidden cylinders/cones.
+- **Per-triangle inconsistency**: same B-Rep face may have different labels on adjacent triangles. Mitigated by MLP edge classifier + area-weighted voting.
+- **Rotation sensitivity**: Fourier position encoding is not rotation-invariant. Rotated parts may produce different predictions.
+- **Mesh resolution**: Low-vertex-count faces (<100 vertices) cannot reliably fit geometric primitives. Subdivision is used as a workaround for sphere fitting only.
 
 ## Pipeline (MVP)
 
