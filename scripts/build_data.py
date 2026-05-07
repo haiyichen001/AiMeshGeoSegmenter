@@ -224,7 +224,7 @@ def process_one(step_path):
                                 c=x[:3]; r2=x[3]+np.dot(c,c)
                                 if r2>0:
                                     r=np.sqrt(r2); dists=np.abs(np.linalg.norm(pts-c,axis=1)-r)
-                                    if np.sqrt((dists**2).mean())/max(r,1e-6)<0.02: base="sphere"
+                                    if np.sqrt((dists**2).mean())/max(r,1e-6)<0.005: base="sphere"
                             except: pass
             face_labels[i]=L2I[base]
 

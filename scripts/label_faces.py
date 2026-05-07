@@ -66,7 +66,7 @@ OCCT_NAMES = {
 }
 
 RADIUS_RATIO = 0.10
-SPHERE_FIT_TOL = 0.02
+SPHERE_FIT_TOL = 0.005
 PLANE_FIT_TOL = 1e-4  # relative RMS error for plane fitting
 
 
