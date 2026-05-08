@@ -78,10 +78,10 @@ def compute_features(verts, faces, normals, centers, areas, span):
     elongation = part_extent / max(part_diag, 1e-6)
     x = np.stack([
         normals[:,0],normals[:,1],normals[:,2], *[fourier[i] for i in range(12)],
-        np.log10(np.maximum(areas,1e-6)), np.zeros(n,np.float32), np.zeros(n,np.float32),
-        np.zeros(n,np.float32), shape, edge_ratio, np.zeros(n,np.float32),
+        np.log10(np.maximum(areas,1e-6)), np.zeros(n,dtype=np.float32), np.zeros(n,dtype=np.float32),
+        np.zeros(n,dtype=np.float32), shape, edge_ratio, np.zeros(n,dtype=np.float32),
         np.full(n, np.log10(max(n,1)), np.float32), np.full(n, elongation[0], np.float32),
-        np.full(n, elongation[1], np.float32), np.zeros(n,np.float32)
+        np.full(n, elongation[1], np.float32), np.zeros(n,dtype=np.float32)
     ], axis=1)
     return x
 

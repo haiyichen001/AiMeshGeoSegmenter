@@ -146,10 +146,13 @@ Key techniques: Jumping Knowledge (JK), AMP, DropEdge, SWA, Focal Loss, GPU-dire
 | v1 | 2K | 10-dim baseline | 63.25% |
 | v2 | 2K | 14-dim + curvature + Focal Loss | 71.23% |
 | v3 | 2K | 26-dim + JK + AMP + DropEdge + SWA | 83.04% |
-| v4 | 20K | 3-seed ensemble | **87.88%** |
+| v4 | 20K | 3-seed ensemble | 87.88% |
+| v5 | 20K | 5-seed ensemble, no CV, full train | **87.60%** |
 
-Per-class accuracy (v4 ensemble, 2,986 test parts):
-- torus 97.06%, plane 90.24%, cone 88.57%, cylinder 87.47%, sphere 73.99%, freeform 64.83%
+Per-class accuracy (v5 5-model ensemble, 2,986 test parts):
+- torus 97.43%, plane 89.26%, cone 87.27%, cylinder 85.75%, sphere 79.23%, freeform 68.95%
+
+Individual model val acc: S42=87.88%, S123=87.94%, S456=88.02%, S789=88.36%, S1024=88.03%
 
 ## Limitations
 
@@ -195,7 +198,7 @@ Infer page shows 3 views side-by-side:
 
 ## Future Improvements
 
-- [ ] Retrain GAT with per-epoch logging (3-seed × 3-fold = 9 curves)
+- [x] 5-model GAT ensemble training (no CV, full 13.9K train, 5 seeds)
 - [ ] Cylinder/Cone/Torus recovery from freeform faces (RANSAC fitting, ~20-30 min)
 - [ ] Rotation-invariant features for GAT
 - [ ] Test-time augmentation for inference
@@ -216,7 +219,7 @@ Response: JSON with per-face classification and mesh data
 ## Status
 
 - Dataset: 19,902 STEP/STL pairs, ~200K annotated faces
-- GAT: 919K params, 88.1% val / 87.6% test
+- GAT: 919K params, 5-model ensemble test 87.6%, best single 88.4% val
 - MLP Edge: 3-seed ensemble, 99.3% accuracy
 - GPU: NVIDIA RTX 5060 Ti, 16 GB VRAM
 
