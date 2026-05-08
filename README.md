@@ -31,6 +31,8 @@ Why GAT:
 - Single model, no domain mismatch between training and inference
 - ~200K params, GPU training, CPU inference capable
 
+![Model Dashboard](viewer/img_v3_0211g_832eafdb-25be-4529-a4c7-f22892a4094g.jpg)
+
 ## 6 Output Classes
 
 | # | Class | Detection |
