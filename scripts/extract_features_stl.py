@@ -17,7 +17,7 @@ from collections import defaultdict
 from scipy.spatial import KDTree
 from multiprocessing import Pool, cpu_count
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
+ROOT = Path(__file__).parent.parent
 STL_DIR = ROOT / "data" / "stl"
 LABEL_DIR = ROOT / "data" / "labels"
 GRAPH_DIR = ROOT / "data" / "graphs"

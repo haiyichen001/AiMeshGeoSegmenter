@@ -6,7 +6,7 @@ from pathlib import Path
 import torch, torch.nn as nn, torch.nn.functional as F
 from sklearn.model_selection import KFold
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
+ROOT = Path(__file__).parent.parent
 MLP_DIR = ROOT / "data" / "mlp_edges"
 MODEL_DIR = ROOT / "models"
 os.makedirs(MODEL_DIR, exist_ok=True)

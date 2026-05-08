@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from flask import Flask, jsonify, request, send_file
 
-DATA = Path(r"D:\AiMeshGeoSegmenter")
+DATA = Path(__file__).parent.parent
 WEB_ROOT = Path(__file__).parent
 STEP_DIR = DATA / "data" / "step"
 STL_DIR = DATA / "data" / "stl"
@@ -225,7 +225,7 @@ def api_infer():
     try:
         file.save(tmp.name)
         tmp.close()
-        py = r"C:\miniconda3\envs\occ\python.exe"
+        py = sys.executable
         env = os.environ.copy()
         env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
         out = subprocess.run(

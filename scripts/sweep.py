@@ -1,10 +1,10 @@
 """Hyperparameter sweep on fixed 2K samples. Runs overnight."""
-import subprocess, json, time
+import sys, subprocess, json, time
 from pathlib import Path
 from datetime import datetime
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
-PYTHON = r"C:\miniconda3\envs\occ\python.exe"
+ROOT = Path(__file__).parent.parent
+PYTHON = sys.executable
 TRAIN = str(ROOT / "scripts" / "train.py")
 RESULTS = ROOT / "models" / "sweep_results.json"
 

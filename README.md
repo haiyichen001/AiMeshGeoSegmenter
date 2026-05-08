@@ -204,18 +204,6 @@ Infer page shows 3 views side-by-side:
 - [ ] Test-time augmentation for inference
 - [ ] STL→STEP full pipeline (numerical fitting + B-Rep construction)
 
-## API
-
-Model inference API available at [<redacted>](https://<redacted>):
-
-```
-POST https://<redacted>/api/infer
-Content-Type: multipart/form-data
-Body: stl=<file>
-
-Response: JSON with per-face classification and mesh data
-```
-
 ## Status
 
 - Dataset: 19,902 STEP/STL pairs, ~200K annotated faces

@@ -9,7 +9,7 @@ from pathlib import Path
 from multiprocessing import Pool, cpu_count
 import torch, torch.nn as nn, torch.nn.functional as F
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
+ROOT = Path(__file__).parent.parent
 LABEL_DIR = ROOT / "data" / "labels"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

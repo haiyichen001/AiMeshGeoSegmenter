@@ -9,7 +9,7 @@ import os, json, collections, time, numpy as np
 from pathlib import Path
 from multiprocessing import Pool, cpu_count
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
+ROOT = Path(__file__).parent.parent
 LABEL_DIR = ROOT / "data" / "labels"
 
 RADIUS_RATIO = 0.10  # radius / diagonal < 10% -> fillet/chamfer candidate

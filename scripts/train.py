@@ -9,7 +9,7 @@ from torch_geometric.data import Data, DataLoader, Batch
 from torch_geometric.utils import add_self_loops
 from sklearn.model_selection import KFold
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter"); DATA_DIR = ROOT/"data"/"patches"; MODEL_DIR = ROOT/"models"
+ROOT = Path(__file__).parent.parent; DATA_DIR = ROOT/"data"/"patches"; MODEL_DIR = ROOT/"models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LABEL_NAMES = ["plane","cylinder","sphere","cone","torus","freeform"]

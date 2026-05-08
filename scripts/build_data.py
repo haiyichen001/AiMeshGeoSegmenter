@@ -5,7 +5,7 @@ import os, time, collections, numpy as np
 from pathlib import Path
 from multiprocessing import Pool, cpu_count
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
+ROOT = Path(__file__).parent.parent
 STEP_DIR = ROOT / "data" / "step"
 DATA_DIR = ROOT / "data" / "patches"
 os.makedirs(DATA_DIR, exist_ok=True)

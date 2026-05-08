@@ -7,7 +7,7 @@ from torch_geometric.data import Data, Batch
 from torch_geometric.utils import add_self_loops
 from sklearn.model_selection import KFold
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
+ROOT = Path(__file__).parent.parent
 MODEL_DIR = ROOT / "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

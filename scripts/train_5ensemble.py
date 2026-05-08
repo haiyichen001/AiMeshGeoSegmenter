@@ -6,7 +6,7 @@ from torch_geometric.nn import GATConv
 from torch_geometric.data import Data, Batch
 from torch_geometric.utils import add_self_loops
 
-ROOT = Path(r"D:\AiMeshGeoSegmenter")
+ROOT = Path(__file__).parent.parent
 MODEL_DIR = ROOT / "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -275,4 +275,4 @@ if __name__ == "__main__":
     with open(MODEL_DIR / "ensemble_report.json", "w") as f:
         json.dump(report, f, indent=2)
     print(f"\nDone. Total: {(time.time()-t0)/60:.1f}min")
-    print(f"train_log.json saved to {MODEL_DIR}")
+    print("train_log.json saved")
